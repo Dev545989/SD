@@ -1,21 +1,7 @@
-name: Extract Dubizzle Phone Number
+name: Extract Phone Number
 
 on:
-  # تشغيل يدوي من GitHub UI
   workflow_dispatch:
-    inputs:
-      listing_url:
-        description: 'Dubizzle listing URL'
-        required: true
-        default: 'https://www.dubizzle.sa/en/ad/للبيع-لكزس-es350-موديل-2015-ID110681220.html'
-      headless:
-        description: 'Run in headless mode'
-        type: boolean
-        default: true
-
-  # أو تشغيل تلقائي كل ساعة (اختياري)
-  # schedule:
-  #   - cron: '0 * * * *'
 
 jobs:
   extract-phone:

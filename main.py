@@ -2,13 +2,13 @@ import argparse
 import json
 import os
 import time
+import random
 from datetime import datetime, timezone, timedelta
-
 import pandas as pd
 import requests
-
 from dotenv import load_dotenv
 load_dotenv()
+
 URL = "https://search.mena.sector.run/_msearch"
 AUTHORIZATION = os.getenv("AUTHORIZATION")
 INDEX = "olx-sa-production-ads-ar"
@@ -145,7 +145,9 @@ def scrape(category_slug, product=None):
             break
 
         search_after = hits[-1]["sort"]
-        time.sleep(2)
+        delay = random.uniform(0.5, 2.5)
+        print(f"  Waiting {delay:.2f}s before next request...")
+        time.sleep(delay)
 
     print(f"{title} Total = {len(all_records)}")
     return all_records
@@ -191,6 +193,11 @@ def run(category_slug: str, out_dir: str = "."):
 
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, f"{category_slug}.csv")
+
+    if df.empty:
+        print(f"Nothing to write for {category_slug} -- skipping CSV output.")
+        return None
+
     df.to_csv(out_path, index=False, encoding="utf-8-sig")
     print(f"Done! -> {out_path}")
     return out_path
@@ -202,6 +209,6 @@ if __name__ == "__main__":
         "--category", required=True, choices=CATEGORY_SLUGS,
         help="Top-level category slug to scrape",
     )
-    parser.add_argument("--out-dir", default="data/raw")
+    parser.add_argument("--out-dir", default="data")
     args = parser.parse_args()
     run(args.category, args.out_dir)

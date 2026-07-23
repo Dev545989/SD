@@ -2,6 +2,7 @@ import argparse
 import ast
 import io
 import json
+import os
 import re
 from datetime import datetime
 
@@ -14,6 +15,42 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 from r2_uploader import upload_buffer
 
 THUMB_URL_TEMPLATE = "https://images.dubizzle.sa/thumbnails/{photo_id}-800x600.webp"
+
+
+# ---------------------------------------------------------------------------
+# Text cleaning -- source data has stray unicode whitespace (e.g. "T5\xa0EVO")
+# ---------------------------------------------------------------------------
+
+def clean_text(value) -> str:
+    """Normalize any value to a clean display string: collapses all unicode
+    whitespace (regular spaces, \\xa0 non-breaking spaces, tabs, etc.) into a
+    single space and strips the ends. Falls back to 'Unknown' for empty/None."""
+    if value is None:
+        return "Unknown"
+    text = re.sub(r"\s+", " ", str(value)).strip()
+    return text or "Unknown"
+
+
+def sanitize_filename(value) -> str:
+    """clean_text() plus stripping characters that aren't safe in a filename/R2 key."""
+    text = clean_text(value)
+    text = re.sub(r'[\\/:*?"<>|]', "-", text)
+    return text or "Unknown"
+
+
+def parse_dict_field(field) -> dict:
+    """Same idea as parse_category/photo_urls: the field is a dict, or a
+    stringified dict when read back from a CSV."""
+    if isinstance(field, dict):
+        return field
+    if isinstance(field, str):
+        try:
+            parsed = ast.literal_eval(field)
+            if isinstance(parsed, dict):
+                return parsed
+        except (ValueError, SyntaxError):
+            pass
+    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -59,6 +96,7 @@ def sheet_name_for(cat1: dict | None, cat2: dict | None) -> str:
             if sub:
                 name = f"{name} ({sub})"
 
+    name = clean_text(name)
     name = re.sub(r"[:\\/?*\[\]]", "-", name)
     return name[:31] or "Uncategorized"
 
@@ -143,7 +181,9 @@ def download_images(images: list, id_prod: str, category_display: str, dt: datet
 # Clean, group by category, build Excel/JSON, upload
 # ---------------------------------------------------------------------------
 
-def load_raw(csv_path: str) -> pd.DataFrame:
+def load_raw(csv_path: str) -> pd.DataFrame | None:
+    if not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0:
+        return None
     return pd.read_csv(csv_path)
 
 
@@ -191,12 +231,30 @@ def _stringify_complex_columns(sheet_df: pd.DataFrame) -> pd.DataFrame:
     return sheet_df
 
 
-def build_excel(sheets: dict) -> io.BytesIO:
+def safe_sheet_name(name: str, used: set) -> str:
+    """Excel sheet names: <=31 chars, no : \\ / ? * [ ], and must be unique per workbook."""
+    name = clean_text(name)
+    name = re.sub(r"[:\\/?*\[\]]", "-", name)[:31] or "Sheet"
+
+    candidate = name
+    n = 1
+    while candidate in used:
+        suffix = f"~{n}"
+        candidate = name[: 31 - len(suffix)] + suffix
+        n += 1
+
+    used.add(candidate)
+    return candidate
+
+
+def build_excel(groups: dict) -> io.BytesIO:
+    """groups: sheet_name -> list of row dicts. One sheet per group."""
     wb = Workbook()
     wb.remove(wb.active)
+    used_names: set = set()
 
-    for sheet_name, rows in sheets.items():
-        ws = wb.create_sheet(title=sheet_name)
+    for name, rows in groups.items():
+        ws = wb.create_sheet(title=safe_sheet_name(name, used_names))
         sheet_df = _stringify_complex_columns(pd.DataFrame(rows))
         for r in dataframe_to_rows(sheet_df, index=False, header=True):
             ws.append(r)
@@ -207,9 +265,62 @@ def build_excel(sheets: dict) -> io.BytesIO:
     return buf
 
 
+# ---------------------------------------------------------------------------
+# Vehicles: extra by_manufacturer/{make}.xlsx (sheet per model) + {make}.json
+# ---------------------------------------------------------------------------
+
+def group_by_make_model(records: list) -> dict:
+    """make (cleaned) -> model (cleaned) -> list of records."""
+    by_make: dict[str, dict[str, list]] = {}
+
+    for record in records:
+        extra = parse_dict_field(record.get("extraFields"))
+        make = sanitize_filename(extra.get("make"))
+        model = clean_text(extra.get("model"))
+
+        by_make.setdefault(make, {}).setdefault(model, []).append(record)
+
+    return by_make
+
+
+def upload_vehicles_by_manufacturer(by_make: dict, category_display: str, dt: datetime):
+    print(f"  by_manufacturer: {len(by_make)} make(s)")
+
+    for make, models in by_make.items():
+        total_ads = sum(len(rows) for rows in models.values())
+        print(f"    - {make}: {len(models)} model(s), {total_ads} ad(s)")
+
+        excel_buf = build_excel(models)
+        excel_key = upload_buffer(
+            excel_buf,
+            filename=f"{make}.xlsx",
+            category_display=category_display,
+            file_type="excel/by_manufacturer",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            dt=dt,
+        )
+        print(f"      Excel -> {excel_key}")
+
+        json_bytes = json.dumps(models, ensure_ascii=False, indent=2, default=str).encode("utf-8")
+        json_key = upload_buffer(
+            io.BytesIO(json_bytes),
+            filename=f"{make}.json",
+            category_display=category_display,
+            file_type="json/by_manufacturer",
+            content_type="application/json",
+            dt=dt,
+        )
+        print(f"      JSON  -> {json_key}")
+
+
 def run(csv_path: str):
     dt = datetime.now()  # single timestamp shared by every upload in this run
     df = load_raw(csv_path)
+
+    if df is None or df.empty:
+        print(f"{csv_path} is missing or empty -- nothing to clean or upload.")
+        return
+
     cat0_name_l1, cat0_slug, sheets, records = clean_and_group(df, dt=dt)
 
     if not cat0_name_l1:
@@ -231,7 +342,7 @@ def run(csv_path: str):
     )
     print(f"Excel -> {excel_key}")
 
-    json_bytes = json.dumps(records, ensure_ascii=False, indent=2, default=str).encode("utf-8")
+    json_bytes = json.dumps(sheets, ensure_ascii=False, indent=2, default=str).encode("utf-8")
     json_key = upload_buffer(
         io.BytesIO(json_bytes),
         filename=f"{cat0_slug}.json",
@@ -241,6 +352,10 @@ def run(csv_path: str):
         dt=dt,
     )
     print(f"JSON  -> {json_key}")
+
+    if cat0_slug == "vehicles":
+        by_make = group_by_make_model(records)
+        upload_vehicles_by_manufacturer(by_make, cat0_name_l1, dt)
 
 
 if __name__ == "__main__":

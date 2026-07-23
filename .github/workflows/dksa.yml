@@ -37,7 +37,7 @@ jobs:
       - name: Scrape ${{ matrix.category }}
         env:
           AUTHORIZATION: ${{ secrets.AUTHORIZATION }}
-        run: python main.py --category ${{ matrix.category }} --out-dir data/raw
+        run: python main.py --category ${{ matrix.category }} --out-dir data
 
       - name: Clean & upload to R2
         env:
@@ -45,4 +45,4 @@ jobs:
           CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
           CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
-        run: python clean_and_upload.py data/raw/${{ matrix.category }}.csv
+        run: python clean_and_upload.py data/${{ matrix.category }}.csv

@@ -15,7 +15,7 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 from r2_uploader import upload_buffer
 
 THUMB_URL_TEMPLATE = "https://images.dubizzle.sa/thumbnails/{photo_id}-800x600.webp"
-
+COLUMNS_TO_DROP = ['geo_point', 'price', 'title_l1', 'description_l1', 'slug_l1']
 
 # ---------------------------------------------------------------------------
 # Text cleaning -- source data has stray unicode whitespace (e.g. "T5\xa0EVO")
@@ -38,20 +38,28 @@ def sanitize_filename(value) -> str:
     return text or "Unknown"
 
 
-def parse_dict_field(field) -> dict:
-    """Same idea as parse_category/photo_urls: the field is a dict, or a
-    stringified dict when read back from a CSV."""
-    if isinstance(field, dict):
-        return field
+
+def parse_formatted_extra_fields(record) -> dict:
+    field = record.get("formattedExtraFields")
+    
     if isinstance(field, str):
         try:
-            parsed = ast.literal_eval(field)
-            if isinstance(parsed, dict):
-                return parsed
+            field = ast.literal_eval(field)
         except (ValueError, SyntaxError):
-            pass
-    return {}
-
+            field = []
+    
+    if not isinstance(field, list):
+        return {}
+    
+    result = {}
+    for item in field:
+        if isinstance(item, dict):
+            attr = item.get("attribute")
+            val = item.get("formattedValue_l1") or item.get("formattedValue")
+            if attr and val is not None:
+                result[attr] = val
+    
+    return result
 
 # ---------------------------------------------------------------------------
 # Category parsing
@@ -274,7 +282,7 @@ def group_by_make_model(records: list) -> dict:
     by_make: dict[str, dict[str, list]] = {}
 
     for record in records:
-        extra = parse_dict_field(record.get("extraFields"))
+        extra = parse_formatted_extra_fields(record)
         make = sanitize_filename(extra.get("make"))
         model = clean_text(extra.get("model"))
 
@@ -320,6 +328,11 @@ def run(csv_path: str):
     if df is None or df.empty:
         print(f"{csv_path} is missing or empty -- nothing to clean or upload.")
         return
+
+    existing_cols = [c for c in COLUMNS_TO_DROP if c in df.columns]
+    if existing_cols:
+        df = df.drop(columns=existing_cols)
+        print(f"  Dropped columns: {existing_cols}")
 
     cat0_name_l1, cat0_slug, sheets, records = clean_and_group(df, dt=dt)
 

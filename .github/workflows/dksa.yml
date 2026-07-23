@@ -1,0 +1,48 @@
+name: DKSA
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * *" 
+
+jobs:
+  scrape-and-clean:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        category:
+          - vehicles
+          - mobile-phones-accessories
+          - electronics-home-appliances
+          - home-garden
+          - fashion-beauty
+          - pets
+          - kids-babies
+          - sporting-goods-bikes
+          - hobbies-music-art-books
+          - jobs-services
+          - business-industrial
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Scrape ${{ matrix.category }}
+        env:
+          DUBIZZLE_SA_AUTH: ${{ secrets.DUBIZZLE_SA_AUTH }}
+        run: python main.py --category ${{ matrix.category }} --out-dir data/raw
+
+      - name: Clean & upload to R2
+        env:
+          CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
+          CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
+        run: python clean_and_upload.py data/raw/${{ matrix.category }}.csv

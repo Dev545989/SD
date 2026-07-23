@@ -7,8 +7,10 @@ from datetime import datetime, timezone, timedelta
 import pandas as pd
 import requests
 
+from dotenv import load_dotenv
+load_dotenv()
 URL = "https://search.mena.sector.run/_msearch"
-AUTHORIZATION = os.getenv("DUBIZZLE_SA_AUTH", "")
+AUTHORIZATION = os.getenv("AUTHORIZATION")
 INDEX = "olx-sa-production-ads-ar"
 LOCATION_ID = "0-1"
 

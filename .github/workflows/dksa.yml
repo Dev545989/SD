@@ -36,7 +36,7 @@ jobs:
 
       - name: Scrape ${{ matrix.category }}
         env:
-          DUBIZZLE_SA_AUTH: ${{ secrets.DUBIZZLE_SA_AUTH }}
+          AUTHORIZATION: ${{ secrets.AUTHORIZATION }}
         run: python main.py --category ${{ matrix.category }} --out-dir data/raw
 
       - name: Clean & upload to R2

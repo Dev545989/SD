@@ -28,9 +28,9 @@ EMPTY_CONTACT_INFO = {
 def build_ad_url(record: dict) -> str | None:
     """
     Ad pages look like:
-    https://www.dubizzle.sa/en/ad/{slug}-ID{id}.html
+    https://www.dubizzle.sa/en/ad/{slug}-ID{externalID}.html
 
-    Builds it from the record's own `id` + `slug` fields. Verify these column
+    Builds it from the record's own `externalID` + `slug` fields. Verify these column
     names match your raw CSV -- adjust if the ES source uses different keys
     (e.g. externalID instead of id).
     """
@@ -39,7 +39,7 @@ def build_ad_url(record: dict) -> str | None:
     if not ad_id or not slug:
         return None
     slug = re.sub(r"[^a-zA-Z0-9\-]+", "-", clean_text(slug)).strip("-").lower()
-    return AD_URL_TEMPLATE.format(slug=slug or "ad", id=ad_id)
+    return AD_URL_TEMPLATE.format(slug=slug or "ad", externalID=ad_id)
 
 
 def fetch_contact_info(page, ad_url: str) -> dict:

@@ -6,6 +6,7 @@ import random
 from datetime import datetime, timezone, timedelta
 import pandas as pd
 import requests
+from request_tracker import tracker
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -115,6 +116,7 @@ def scrape(category_slug, product=None):
     while True:
         query = build_query(category_slug, search_after=search_after, product=product)
         data = send_query(query)
+        tracker.log_request(source="scraping_pages")
         responses = data.get("responses", [])
 
         if not responses:
@@ -200,6 +202,15 @@ def run(category_slug: str, out_dir: str = "."):
 
     df.to_csv(out_path, index=False, encoding="utf-8-sig")
     print(f"Done! -> {out_path}")
+
+    stats_file = f"request_stats_{category_slug}.json"
+    stats = tracker.save(stats_file)
+
+    print(f"\n--- Combined Request Stats ---")
+    print(f"Total: {stats['total_requests']} req | {stats['total_req_per_min']} req/min")
+    print(f"By source: {stats['per_source']}")
+    for worker, s in stats["per_worker"].items():
+        print(f"  {worker}: {s['requests']} req | {s['req_per_min']} req/min")
     return out_path
 
 

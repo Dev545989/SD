@@ -4,14 +4,17 @@ import io
 import json
 import os
 import re
-from datetime import datetime
-
+from datetime import datetime, timedelta
+import random
+import time
 import pandas as pd
 import requests as req
 from PIL import Image
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
-
+from playwright.sync_api import sync_playwright
+from playwright_stealth import Stealth
+from contact_info_fetcher import build_ad_url, fetch_contact_info, EMPTY_CONTACT_INFO
 from r2_uploader import upload_buffer
 
 THUMB_URL_TEMPLATE = "https://images.dubizzle.sa/thumbnails/{photo_id}-800x600.webp"
@@ -195,12 +198,7 @@ def load_raw(csv_path: str) -> pd.DataFrame | None:
     return pd.read_csv(csv_path)
 
 
-def clean_and_group(df: pd.DataFrame, dt: datetime = None):
-    """
-    One input CSV == one top-level category (that's how the scraper's --category works).
-    Returns (cat0_name_l1, cat0_slug, sheets, all_records) where `sheets` maps
-    sheet name -> list of row dicts, and `all_records` is the flat list for the JSON dump.
-    """
+def clean_and_group(df: pd.DataFrame, page=None, dt: datetime = None):
     sheets: dict[str, list] = {}
     all_records = []
     cat0_name_l1 = None
@@ -224,6 +222,16 @@ def clean_and_group(df: pd.DataFrame, dt: datetime = None):
 
         record = row.to_dict()
         record["image_r2_paths"] = image_r2_paths
+
+        if page is not None:
+            ad_url = build_ad_url(record)
+            if ad_url:
+                record["contact_info"] = fetch_contact_info(page, ad_url)
+                time.sleep(random.uniform(2, 5))  # human-like gap, avoid getting blocked
+            else:
+                record["contact_info"] = dict(EMPTY_CONTACT_INFO)
+        else:
+            record["contact_info"] = dict(EMPTY_CONTACT_INFO)
 
         sheets.setdefault(sheet, []).append(record)
         all_records.append(record)
@@ -290,6 +298,66 @@ def group_by_make_model(records: list) -> dict:
 
     return by_make
 
+def build_category_summary(records: list, cat0_name_l1: str, dt: datetime) -> dict:
+    """
+    Aggregates cleaned records into the per-category summary.json shape:
+    one entry per level-1 subcategory, with level-2 sub-subcategory names
+    (name_l1) collected into `subcategories` when they exist for that
+    subcategory (deduped, insertion order preserved).
+    """
+    groups: dict[str, dict] = {}
+
+    for record in records:
+        _, cat1, cat2 = parse_category(record.get("category"))
+
+        if cat1 is None:
+            key = "uncategorized"
+            name_en = "Uncategorized"
+            name_ar = "غير مصنف"
+            slug = "uncategorized"
+        else:
+            slug = cat1.get("slug") or "uncategorized"
+            key = slug
+            name_en = cat1.get("name_l1") or cat1.get("name") or "Uncategorized"
+            name_ar = cat1.get("name") or name_en
+
+        group = groups.setdefault(key, {
+            "name_ar": name_ar,
+            "name_en": name_en,
+            "slug": slug,
+            "listings_count": 0,
+            "_sub_seen": set(),
+            "subcategories": [],
+        })
+        group["listings_count"] += 1
+
+        if cat2:
+            sub_name = cat2.get("name_l1") or cat2.get("name")
+            if sub_name and sub_name not in group["_sub_seen"]:
+                group["_sub_seen"].add(sub_name)
+                group["subcategories"].append(sub_name)
+
+    subcategories = [
+        {
+            "name_ar": g["name_ar"],
+            "name_en": g["name_en"],
+            "slug": g["slug"],
+            "listings_count": g["listings_count"],
+            "has_subcategories": bool(g["subcategories"]),
+            "subcategories": g["subcategories"],
+        }
+        for g in groups.values()
+    ]
+
+    return {
+        "scraped_at": dt.isoformat(),
+        "data_scraped_date": (dt - timedelta(days=1)).strftime("%Y-%m-%d"),
+        "saved_to_R2_date": dt.strftime("%Y-%m-%d"),
+        "total_subcategories": len(subcategories),
+        "total_listings": len(records),
+        "subcategories": subcategories,
+    }
+
 
 def upload_vehicles_by_manufacturer(by_make: dict, category_display: str, dt: datetime):
     print(f"  by_manufacturer: {len(by_make)} make(s)")
@@ -322,7 +390,7 @@ def upload_vehicles_by_manufacturer(by_make: dict, category_display: str, dt: da
 
 
 def run(csv_path: str):
-    dt = datetime.now()  # single timestamp shared by every upload in this run
+    dt = datetime.now()
     df = load_raw(csv_path)
 
     if df is None or df.empty:
@@ -334,11 +402,23 @@ def run(csv_path: str):
         df = df.drop(columns=existing_cols)
         print(f"  Dropped columns: {existing_cols}")
 
-    cat0_name_l1, cat0_slug, sheets, records = clean_and_group(df, dt=dt)
+    with Stealth().use_sync(sync_playwright()) as p:
+        browser = p.chromium.launch(headless=True, channel="chrome")
+        context = browser.new_context(
+            viewport={"width": 1920, "height": 1080},
+            locale="en-US",
+            timezone_id="Asia/Riyadh",
+        )
+        page = context.new_page()
+        try:
+            cat0_name_l1, cat0_slug, sheets, records = clean_and_group(df, page=page, dt=dt)
+        finally:
+            browser.close()
 
     if not cat0_name_l1:
         print(f"No usable category data found in {csv_path}")
         return
+
 
     print(f"Category: {cat0_name_l1} ({cat0_slug}) -- {len(sheets)} sheet(s), {len(records)} ad(s)")
     for name, rows in sheets.items():
@@ -365,6 +445,18 @@ def run(csv_path: str):
         dt=dt,
     )
     print(f"JSON  -> {json_key}")
+
+    summary = build_category_summary(records, cat0_name_l1, dt)
+    summary_bytes = json.dumps(summary, ensure_ascii=False, indent=2).encode("utf-8")
+    summary_key = upload_buffer(
+        io.BytesIO(summary_bytes),
+        filename="summary.json",
+        category_display=cat0_name_l1,
+        file_type="summary",
+        content_type="application/json",
+        dt=dt,
+    )
+    print(f"Summary -> {summary_key} ({summary['total_subcategories']} subcats, {summary['total_listings']} listings)")
 
     if cat0_slug == "vehicles":
         by_make = group_by_make_model(records)

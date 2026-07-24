@@ -1,6 +1,6 @@
 import random
 import re
-from clean_and_upload import clean_text
+from text_utils import clean_text
 from request_tracker import tracker
 
 AD_URL_TEMPLATE = "https://www.dubizzle.sa/en/ad/{slug}-ID{externalID}.html"

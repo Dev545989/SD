@@ -14,33 +14,12 @@ from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
+from text_utils import clean_text, sanitize_filename
 from contact_info_fetcher import build_ad_url, fetch_contact_info, EMPTY_CONTACT_INFO
 from r2_uploader import upload_buffer
 
 THUMB_URL_TEMPLATE = "https://images.dubizzle.sa/thumbnails/{photo_id}-800x600.webp"
 COLUMNS_TO_DROP = ['geo_point', 'price', 'title_l1', 'description_l1', 'slug_l1']
-
-# ---------------------------------------------------------------------------
-# Text cleaning -- source data has stray unicode whitespace (e.g. "T5\xa0EVO")
-# ---------------------------------------------------------------------------
-
-def clean_text(value) -> str:
-    """Normalize any value to a clean display string: collapses all unicode
-    whitespace (regular spaces, \\xa0 non-breaking spaces, tabs, etc.) into a
-    single space and strips the ends. Falls back to 'Unknown' for empty/None."""
-    if value is None:
-        return "Unknown"
-    text = re.sub(r"\s+", " ", str(value)).strip()
-    return text or "Unknown"
-
-
-def sanitize_filename(value) -> str:
-    """clean_text() plus stripping characters that aren't safe in a filename/R2 key."""
-    text = clean_text(value)
-    text = re.sub(r'[\\/:*?"<>|]', "-", text)
-    return text or "Unknown"
-
-
 
 def parse_formatted_extra_fields(record) -> dict:
     field = record.get("formattedExtraFields")

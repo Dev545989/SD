@@ -314,7 +314,7 @@ def upload_vehicles_by_manufacturer(by_make: dict, category_display: str, dt: da
             excel_buf,
             filename=f"{make}.xlsx",
             category_display=category_display,
-            file_type="excel/by_manufacturer",
+            file_type="excel",
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             dt=dt,
         )
@@ -325,7 +325,7 @@ def upload_vehicles_by_manufacturer(by_make: dict, category_display: str, dt: da
             io.BytesIO(json_bytes),
             filename=f"{make}.json",
             category_display=category_display,
-            file_type="json/by_manufacturer",
+            file_type="json",
             content_type="application/json",
             dt=dt,
         )
@@ -366,27 +366,33 @@ def run(csv_path: str):
     for name, rows in sheets.items():
         print(f"  - {name}: {len(rows)}")
 
-    excel_buf = build_excel(sheets)
-    excel_key = upload_buffer(
-        excel_buf,
-        filename=f"{cat0_slug}.xlsx",
-        category_display=cat0_name_l1,
-        file_type="excel",
-        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        dt=dt,
-    )
-    print(f"Excel -> {excel_key}")
+    if cat0_slug == "vehicles":
+        # No combined vehicles.xlsx/vehicles.json -- each manufacturer's
+        # file goes straight into excel/ and json/ instead.
+        by_make = group_by_make_model(records)
+        upload_vehicles_by_manufacturer(by_make, cat0_name_l1, dt)
+    else:
+        excel_buf = build_excel(sheets)
+        excel_key = upload_buffer(
+            excel_buf,
+            filename=f"{cat0_slug}.xlsx",
+            category_display=cat0_name_l1,
+            file_type="excel",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            dt=dt,
+        )
+        print(f"Excel -> {excel_key}")
 
-    json_bytes = json.dumps(sheets, ensure_ascii=False, indent=2, default=str).encode("utf-8")
-    json_key = upload_buffer(
-        io.BytesIO(json_bytes),
-        filename=f"{cat0_slug}.json",
-        category_display=cat0_name_l1,
-        file_type="json",
-        content_type="application/json",
-        dt=dt,
-    )
-    print(f"JSON  -> {json_key}")
+        json_bytes = json.dumps(sheets, ensure_ascii=False, indent=2, default=str).encode("utf-8")
+        json_key = upload_buffer(
+            io.BytesIO(json_bytes),
+            filename=f"{cat0_slug}.json",
+            category_display=cat0_name_l1,
+            file_type="json",
+            content_type="application/json",
+            dt=dt,
+        )
+        print(f"JSON  -> {json_key}")
 
     summary = build_category_summary(records, cat0_name_l1, dt)
     summary_bytes = json.dumps(summary, ensure_ascii=False, indent=2).encode("utf-8")
@@ -400,8 +406,6 @@ def run(csv_path: str):
     )
     print(f"Summary -> {summary_key} ({summary['total_subcategories']} subcats, {summary['total_listings']} listings)")
 
-    # failed_pages_{slug}.json is written by main.py (scraping step) in the
-    # same working directory, before this cleaning step runs.
     failed_matches = glob.glob("failed_pages_*.json")
     if failed_matches:
         with open(failed_matches[0], "r", encoding="utf-8") as f:
@@ -427,10 +431,6 @@ def run(csv_path: str):
     with open(f"monitor_entry_{cat0_slug}.json", "w", encoding="utf-8") as f:
         json.dump(monitor_entry, f, ensure_ascii=False, indent=2)
     print(f"Monitor entry -> monitor_entry_{cat0_slug}.json ({monitor_entry['total_ads']} ads)")
-
-    if cat0_slug == "vehicles":
-        by_make = group_by_make_model(records)
-        upload_vehicles_by_manufacturer(by_make, cat0_name_l1, dt)
 
 
 if __name__ == "__main__":

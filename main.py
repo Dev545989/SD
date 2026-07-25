@@ -111,12 +111,28 @@ def scrape(category_slug, product=None):
     print(f"\n========== {category_slug} / {title} ==========")
 
     all_records = []
+    failed_pages = []
     search_after = None
+    page_number = 0
 
     while True:
+        page_number += 1
         query = build_query(category_slug, search_after=search_after, product=product)
-        data = send_query(query)
-        tracker.log_request(source="scraping_pages")
+
+        try:
+            data = send_query(query)
+            tracker.log_request(source="scraping_pages", success=True)
+        except Exception as e:
+            tracker.log_request(source="scraping_pages", success=False)
+            failed_pages.append({
+                "category": category_slug,
+                "product": product or "normal",
+                "page": page_number,
+                "error": str(e),
+            })
+            print(f"  [FAILED] page {page_number}: {e}")
+            break
+
         responses = data.get("responses", [])
 
         if not responses:
@@ -126,7 +142,13 @@ def scrape(category_slug, product=None):
         response = responses[0]
         if "error" in response:
             print(json.dumps(response["error"], indent=2))
-            return []
+            failed_pages.append({
+                "category": category_slug,
+                "product": product or "normal",
+                "page": page_number,
+                "error": json.dumps(response["error"], ensure_ascii=False),
+            })
+            return [], failed_pages
 
         hits_obj = response.get("hits", {})
         total = hits_obj.get("total", {}).get("value", 0)
@@ -152,7 +174,7 @@ def scrape(category_slug, product=None):
         time.sleep(delay)
 
     print(f"{title} Total = {len(all_records)}")
-    return all_records
+    return all_records, failed_pages
 
 
 def filter_yesterday_hits(hits):
@@ -177,9 +199,11 @@ def filter_yesterday_hits(hits):
 
 
 def run(category_slug: str, out_dir: str = "."):
-    normal = scrape(category_slug)
-    featured = scrape(category_slug, "featured")
-    elite = scrape(category_slug, "elite")
+    normal, failed_normal = scrape(category_slug)
+    featured, failed_featured = scrape(category_slug, "featured")
+    elite, failed_elite = scrape(category_slug, "elite")
+
+    failed_pages = failed_normal + failed_featured + failed_elite
 
     all_records = normal + featured + elite
     print(f"Before yesterday filter ({TARGET_DATE}):", len(all_records))
@@ -196,21 +220,30 @@ def run(category_slug: str, out_dir: str = "."):
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, f"{category_slug}.csv")
 
+    stats_file = f"request_stats_{category_slug}.json"
+    stats = tracker.save(stats_file)
+
+    # Written locally so clean_and_upload.py can pick it up and upload it
+    # next to summary.json for this same category.
+    failed_file = f"failed_pages_{category_slug}.json"
+    with open(failed_file, "w", encoding="utf-8") as f:
+        json.dump({
+            "category": category_slug,
+            "total_failed": len(failed_pages),
+            "failed_pages": failed_pages,
+        }, f, ensure_ascii=False, indent=2)
+    print(f"Failed pages -> {failed_file} ({len(failed_pages)} failed)")
+
+    print(f"\n--- Combined Request Stats ---")
+    print(f"Total: {stats['total_requests']} req | {stats['total_req_per_min']} req/min")
+    print(f"By source: {stats['per_source']}")
+
     if df.empty:
         print(f"Nothing to write for {category_slug} -- skipping CSV output.")
         return None
 
     df.to_csv(out_path, index=False, encoding="utf-8-sig")
     print(f"Done! -> {out_path}")
-
-    stats_file = f"request_stats_{category_slug}.json"
-    stats = tracker.save(stats_file)
-
-    print(f"\n--- Combined Request Stats ---")
-    print(f"Total: {stats['total_requests']} req | {stats['total_req_per_min']} req/min")
-    print(f"By source: {stats['per_source']}")
-    for worker, s in stats["per_worker"].items():
-        print(f"  {worker}: {s['requests']} req | {s['req_per_min']} req/min")
     return out_path
 
 

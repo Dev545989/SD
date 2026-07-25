@@ -10,6 +10,7 @@ import time
 import pandas as pd
 import requests as req
 from PIL import Image
+import glob
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 from playwright.sync_api import sync_playwright
@@ -21,18 +22,19 @@ from r2_uploader import upload_buffer
 THUMB_URL_TEMPLATE = "https://images.dubizzle.sa/thumbnails/{photo_id}-800x600.webp"
 COLUMNS_TO_DROP = ['geo_point', 'price', 'title_l1', 'description_l1', 'slug_l1']
 
+
 def parse_formatted_extra_fields(record) -> dict:
     field = record.get("formattedExtraFields")
-    
+
     if isinstance(field, str):
         try:
             field = ast.literal_eval(field)
         except (ValueError, SyntaxError):
             field = []
-    
+
     if not isinstance(field, list):
         return {}
-    
+
     result = {}
     for item in field:
         if isinstance(item, dict):
@@ -40,12 +42,9 @@ def parse_formatted_extra_fields(record) -> dict:
             val = item.get("formattedValue_l1") or item.get("formattedValue")
             if attr and val is not None:
                 result[attr] = val
-    
+
     return result
 
-# ---------------------------------------------------------------------------
-# Category parsing
-# ---------------------------------------------------------------------------
 
 def parse_category(cat_field):
     """
@@ -69,14 +68,6 @@ def parse_category(cat_field):
 
 
 def sheet_name_for(cat1: dict | None, cat2: dict | None) -> str:
-    """
-    One sheet per subcategory (level 1), e.g. "Other Business & Industrial".
-    If a level-2 sub-subcategory exists too, it's appended, e.g.
-    "Decoration - Accessories (Art - Paintings)".
-
-    Note: Excel sheet names can't contain [ ] : \\ / ? * -- so square brackets
-    are swapped for parentheses rather than dropped.
-    """
     if cat1 is None:
         name = "Uncategorized"
     else:
@@ -91,16 +82,7 @@ def sheet_name_for(cat1: dict | None, cat2: dict | None) -> str:
     return name[:31] or "Uncategorized"
 
 
-# ---------------------------------------------------------------------------
-# Images: extract URLs, download, convert to WEBP, upload to R2
-# ---------------------------------------------------------------------------
-
 def photo_urls(photos_field) -> list:
-    """
-    `photos` is a list of dicts like {'id': 3004387, 'externalID': ..., 'orderIndex': 0, ...}.
-    Build the real image URL from each photo's numeric `id`.
-    Handles the field arriving as a real list or as a stringified list from a CSV.
-    """
     if isinstance(photos_field, str):
         try:
             photos_field = ast.literal_eval(photos_field)
@@ -119,10 +101,6 @@ def photo_urls(photos_field) -> list:
 
 
 def download_images(images: list, id_prod: str, category_display: str, dt: datetime = None) -> list:
-    """
-    Downloads each image, converts to WEBP, and uploads to R2 under
-    DKSA/year=.../month=.../day=.../{category_display}/images/{id_prod}-{n}.webp
-    """
     r2_paths = []
     uploaded = 0
     failed = 0
@@ -167,10 +145,6 @@ def download_images(images: list, id_prod: str, category_display: str, dt: datet
     return r2_paths
 
 
-# ---------------------------------------------------------------------------
-# Clean, group by category, build Excel/JSON, upload
-# ---------------------------------------------------------------------------
-
 def load_raw(csv_path: str) -> pd.DataFrame | None:
     if not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0:
         return None
@@ -181,6 +155,7 @@ def clean_and_group(df: pd.DataFrame, page=None, dt: datetime = None):
     sheets: dict[str, list] = {}
     all_records = []
     cat0_name_l1 = None
+    cat0_name_ar = None
     cat0_slug = None
 
     for _, row in df.iterrows():
@@ -190,6 +165,7 @@ def clean_and_group(df: pd.DataFrame, page=None, dt: datetime = None):
 
         if cat0_name_l1 is None:
             cat0_name_l1 = cat0.get("name_l1")
+            cat0_name_ar = cat0.get("name")
             cat0_slug = cat0.get("slug")
 
         sheet = sheet_name_for(cat1, cat2)
@@ -215,7 +191,7 @@ def clean_and_group(df: pd.DataFrame, page=None, dt: datetime = None):
         sheets.setdefault(sheet, []).append(record)
         all_records.append(record)
 
-    return cat0_name_l1, cat0_slug, sheets, all_records
+    return cat0_name_l1, cat0_name_ar, cat0_slug, sheets, all_records
 
 
 def _stringify_complex_columns(sheet_df: pd.DataFrame) -> pd.DataFrame:
@@ -227,7 +203,6 @@ def _stringify_complex_columns(sheet_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def safe_sheet_name(name: str, used: set) -> str:
-    """Excel sheet names: <=31 chars, no : \\ / ? * [ ], and must be unique per workbook."""
     name = clean_text(name)
     name = re.sub(r"[:\\/?*\[\]]", "-", name)[:31] or "Sheet"
 
@@ -243,7 +218,6 @@ def safe_sheet_name(name: str, used: set) -> str:
 
 
 def build_excel(groups: dict) -> io.BytesIO:
-    """groups: sheet_name -> list of row dicts. One sheet per group."""
     wb = Workbook()
     wb.remove(wb.active)
     used_names: set = set()
@@ -260,12 +234,7 @@ def build_excel(groups: dict) -> io.BytesIO:
     return buf
 
 
-# ---------------------------------------------------------------------------
-# Vehicles: extra by_manufacturer/{make}.xlsx (sheet per model) + {make}.json
-# ---------------------------------------------------------------------------
-
 def group_by_make_model(records: list) -> dict:
-    """make (cleaned) -> model (cleaned) -> list of records."""
     by_make: dict[str, dict[str, list]] = {}
 
     for record in records:
@@ -277,13 +246,8 @@ def group_by_make_model(records: list) -> dict:
 
     return by_make
 
+
 def build_category_summary(records: list, cat0_name_l1: str, dt: datetime) -> dict:
-    """
-    Aggregates cleaned records into the per-category summary.json shape:
-    one entry per level-1 subcategory, with level-2 sub-subcategory names
-    (name_l1) collected into `subcategories` when they exist for that
-    subcategory (deduped, insertion order preserved).
-    """
     groups: dict[str, dict] = {}
 
     for record in records:
@@ -390,14 +354,13 @@ def run(csv_path: str):
         )
         page = context.new_page()
         try:
-            cat0_name_l1, cat0_slug, sheets, records = clean_and_group(df, page=page, dt=dt)
+            cat0_name_l1, cat0_name_ar, cat0_slug, sheets, records = clean_and_group(df, page=page, dt=dt)
         finally:
             browser.close()
 
     if not cat0_name_l1:
         print(f"No usable category data found in {csv_path}")
         return
-
 
     print(f"Category: {cat0_name_l1} ({cat0_slug}) -- {len(sheets)} sheet(s), {len(records)} ad(s)")
     for name, rows in sheets.items():
@@ -436,6 +399,34 @@ def run(csv_path: str):
         dt=dt,
     )
     print(f"Summary -> {summary_key} ({summary['total_subcategories']} subcats, {summary['total_listings']} listings)")
+
+    # failed_pages_{slug}.json is written by main.py (scraping step) in the
+    # same working directory, before this cleaning step runs.
+    failed_matches = glob.glob("failed_pages_*.json")
+    if failed_matches:
+        with open(failed_matches[0], "r", encoding="utf-8") as f:
+            failed_data = json.load(f)
+        failed_bytes = json.dumps(failed_data, ensure_ascii=False, indent=2).encode("utf-8")
+        failed_key = upload_buffer(
+            io.BytesIO(failed_bytes),
+            filename="failed.json",
+            category_display=cat0_name_l1,
+            file_type="summary",
+            content_type="application/json",
+            dt=dt,
+        )
+        print(f"Failed -> {failed_key} ({failed_data['total_failed']} failed)")
+    else:
+        print("No failed_pages_*.json found -- skipping failed.json upload.")
+
+    monitor_entry = {
+        "name": cat0_name_ar or cat0_name_l1 or "Unknown",
+        "slug": cat0_slug,
+        "total_ads": len(records),
+    }
+    with open(f"monitor_entry_{cat0_slug}.json", "w", encoding="utf-8") as f:
+        json.dump(monitor_entry, f, ensure_ascii=False, indent=2)
+    print(f"Monitor entry -> monitor_entry_{cat0_slug}.json ({monitor_entry['total_ads']} ads)")
 
     if cat0_slug == "vehicles":
         by_make = group_by_make_model(records)

@@ -4,7 +4,7 @@ import io
 import json
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import random
 import time
 import pandas as pd
@@ -20,8 +20,15 @@ from contact_info_fetcher import build_ad_url, fetch_contact_info, EMPTY_CONTACT
 from r2_uploader import upload_buffer
 
 THUMB_URL_TEMPLATE = "https://images.dubizzle.sa/thumbnails/{photo_id}-800x600.webp"
-COLUMNS_TO_DROP = ['geo_point', 'price', 'title_l1', 'description_l1', 'slug_l1']
 
+COLUMNS_TO_DROP = ['geo_point', 'price', 'title_l1', 'description_l1', 'slug_l1', 'coverPhoto',
+                   'external_link', 'external_link_l1', 'documentsTags', 'videoCount', 'documentCount'
+                   'panoramaCount']
+
+
+VEHICLE_MANUFACTURER_SPLIT_SLUGS = {"cars-for-sale", "cars-for-rent"}
+
+TIMESTAMP_FIELDS = ("createdAt", "updatedAt", "timestamp")
 
 def parse_formatted_extra_fields(record) -> dict:
     field = record.get("formattedExtraFields")
@@ -47,12 +54,6 @@ def parse_formatted_extra_fields(record) -> dict:
 
 
 def parse_category(cat_field):
-    """
-    `category` comes back from Elasticsearch as a list of dicts, one per level
-    (0 = top category, 1 = subcategory, 2 = sub-subcategory -- level 2 not always present).
-    When read back from a CSV it arrives as a stringified list, so handle both.
-    Returns (cat0, cat1, cat2) -- any of them can be None.
-    """
     if isinstance(cat_field, list):
         cats = cat_field
     elif isinstance(cat_field, str):
@@ -68,6 +69,7 @@ def parse_category(cat_field):
 
 
 def sheet_name_for(cat1: dict | None, cat2: dict | None) -> str:
+    """Used only for the flat (no sub-subcategories anywhere) combined-file case."""
     if cat1 is None:
         name = "Uncategorized"
     else:
@@ -99,6 +101,28 @@ def photo_urls(photos_field) -> list:
             urls.append(THUMB_URL_TEMPLATE.format(photo_id=pid))
     return urls
 
+def format_timestamp(value):
+    """Converts a unix epoch (int/float/str like 1784702633.71555) to
+    ISO 8601 UTC format: 2025-11-26T07:57:17Z. Leaves non-numeric or
+    empty values untouched."""
+    if value is None or value == "":
+        return value
+    try:
+        ts = float(value)
+    except (TypeError, ValueError):
+        return value
+    try:
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return value
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def clean_timestamp_fields(record: dict) -> dict:
+    for field in TIMESTAMP_FIELDS:
+        if field in record:
+            record[field] = format_timestamp(record[field])
+    return record
 
 def download_images(images: list, id_prod: str, category_display: str, dt: datetime = None) -> list:
     r2_paths = []
@@ -176,13 +200,17 @@ def clean_and_group(df: pd.DataFrame, page=None, dt: datetime = None):
         image_r2_paths = download_images(urls, id_prod=ad_id, category_display=cat0_name_l1, dt=dt)
 
         record = row.to_dict()
+        record = clean_timestamp_fields(record)
         record["image_r2_paths"] = image_r2_paths
+        record["photo_urls"] = urls
+        record.pop("photos", None)
 
+        record["image_r2_paths"] = image_r2_paths
         if page is not None:
             ad_url = build_ad_url(record)
             if ad_url:
                 record["contact_info"] = fetch_contact_info(page, ad_url)
-                time.sleep(random.uniform(2, 5))  # human-like gap, avoid getting blocked
+                time.sleep(random.uniform(2, 5))
             else:
                 record["contact_info"] = dict(EMPTY_CONTACT_INFO)
         else:
@@ -247,6 +275,67 @@ def group_by_make_model(records: list) -> dict:
     return by_make
 
 
+def split_vehicle_records(records: list) -> tuple[dict, dict]:
+    manufacturer_groups: dict[str, dict] = {}
+    other_sheets: dict[str, list] = {}
+
+    for record in records:
+        _, cat1, _ = parse_category(record.get("category"))
+
+        if cat1 is None:
+            slug = "uncategorized"
+            name = "Uncategorized"
+        else:
+            slug = cat1.get("slug") or "uncategorized"
+            name = clean_text(cat1.get("name_l1") or cat1.get("name") or "Uncategorized")
+
+        if slug in VEHICLE_MANUFACTURER_SPLIT_SLUGS:
+            group = manufacturer_groups.setdefault(slug, {"name": name, "records": []})
+            group["records"].append(record)
+        else:
+            other_sheets.setdefault(name, []).append(record)
+
+    return manufacturer_groups, other_sheets
+
+
+def has_any_subsubcategory(records: list) -> bool:
+    """True if any record in this category has a level-2 (sub-subcategory)."""
+    for record in records:
+        _, _, cat2 = parse_category(record.get("category"))
+        if cat2:
+            return True
+    return False
+
+
+def build_subcategory_files(records: list) -> dict[str, dict[str, list]]:
+    """
+    subcategory display name -> {sheet_name: rows}
+
+    Used when the category has sub-subcategories somewhere: each
+    subcategory becomes its own file. Inside that file, sheets are named
+    after the sub-subcategory when present, otherwise a single sheet named
+    after the subcategory itself.
+    """
+    files: dict[str, dict[str, list]] = {}
+
+    for record in records:
+        _, cat1, cat2 = parse_category(record.get("category"))
+
+        if cat1 is None:
+            subcat_name = "Uncategorized"
+        else:
+            subcat_name = clean_text(cat1.get("name_l1") or cat1.get("name") or "Uncategorized")
+
+        if cat2:
+            sheet_name = clean_text(cat2.get("name_l1") or cat2.get("name") or subcat_name)
+        else:
+            sheet_name = subcat_name
+
+        files.setdefault(subcat_name, {}).setdefault(sheet_name, []).append(record)
+
+    return files
+
+
 def build_category_summary(records: list, cat0_name_l1: str, dt: datetime) -> dict:
     groups: dict[str, dict] = {}
 
@@ -302,8 +391,11 @@ def build_category_summary(records: list, cat0_name_l1: str, dt: datetime) -> di
     }
 
 
-def upload_vehicles_by_manufacturer(by_make: dict, category_display: str, dt: datetime):
-    print(f"  by_manufacturer: {len(by_make)} make(s)")
+def upload_vehicles_by_manufacturer(by_make: dict, category_display: str, subcategory_name: str, dt: datetime):
+    print(f"  {subcategory_name} by_manufacturer: {len(by_make)} make(s)")
+
+    excel_file_type = f"excel/{subcategory_name}"
+    json_file_type = f"json/{subcategory_name}"
 
     for make, models in by_make.items():
         total_ads = sum(len(rows) for rows in models.values())
@@ -314,7 +406,7 @@ def upload_vehicles_by_manufacturer(by_make: dict, category_display: str, dt: da
             excel_buf,
             filename=f"{make}.xlsx",
             category_display=category_display,
-            file_type="excel",
+            file_type=excel_file_type,
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             dt=dt,
         )
@@ -325,12 +417,51 @@ def upload_vehicles_by_manufacturer(by_make: dict, category_display: str, dt: da
             io.BytesIO(json_bytes),
             filename=f"{make}.json",
             category_display=category_display,
-            file_type="json",
+            file_type=json_file_type,
             content_type="application/json",
             dt=dt,
         )
         print(f"      JSON  -> {json_key}")
 
+
+def upload_subcategory_files(subcat_files: dict, category_display: str, dt: datetime):
+    """
+    Uploads each subcategory as its own file, flat under excel/ and json/:
+    DKSA/.../{category_display}/excel/{Subcategory Name}.xlsx
+    DKSA/.../{category_display}/json/{Subcategory Name}.json
+    Sheets inside each file are the sub-subcategories (or a single sheet
+    named after the subcategory when it has no sub-subcategories).
+    """
+    for subcat_name, sheets in subcat_files.items():
+        total_ads = sum(len(rows) for rows in sheets.values())
+        print(f"  {subcat_name}: {len(sheets)} sheet(s), {total_ads} ad(s)")
+
+        excel_buf = build_excel(sheets)
+        excel_key = upload_buffer(
+            excel_buf,
+            filename=f"{subcat_name}.xlsx",
+            category_display=category_display,
+            file_type="excel",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            dt=dt,
+        )
+        print(f"    Excel -> {excel_key}")
+
+        json_bytes = json.dumps(sheets, ensure_ascii=False, indent=2, default=str).encode("utf-8")
+        json_key = upload_buffer(
+            io.BytesIO(json_bytes),
+            filename=f"{subcat_name}.json",
+            category_display=category_display,
+            file_type="json",
+            content_type="application/json",
+            dt=dt,
+        )
+        print(f"    JSON  -> {json_key}")
+
+def remove_category_column(groups):
+    for _, rows in groups.items():
+        for record in rows:
+            record.pop("category", None)
 
 def run(csv_path: str):
     dt = datetime.now()
@@ -367,11 +498,44 @@ def run(csv_path: str):
         print(f"  - {name}: {len(rows)}")
 
     if cat0_slug == "vehicles":
-        # No combined vehicles.xlsx/vehicles.json -- each manufacturer's
-        # file goes straight into excel/ and json/ instead.
-        by_make = group_by_make_model(records)
-        upload_vehicles_by_manufacturer(by_make, cat0_name_l1, dt)
+        manufacturer_groups, other_sheets = split_vehicle_records(records)
+
+        for slug, group in manufacturer_groups.items():
+            by_make = group_by_make_model(group["records"])
+            upload_vehicles_by_manufacturer(by_make, cat0_name_l1, group["name"], dt)
+
+        if other_sheets:
+            excel_buf = build_excel(other_sheets)
+            excel_key = upload_buffer(
+                excel_buf,
+                filename="Vehicles.xlsx",
+                category_display=cat0_name_l1,
+                file_type="excel",
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                dt=dt,
+            )
+            print(f"Vehicles (other subcats) Excel -> {excel_key}")
+
+            json_bytes = json.dumps(other_sheets, ensure_ascii=False, indent=2, default=str).encode("utf-8")
+            json_key = upload_buffer(
+                io.BytesIO(json_bytes),
+                filename="Vehicles.json",
+                category_display=cat0_name_l1,
+                file_type="json",
+                content_type="application/json",
+                dt=dt,
+            )
+            print(f"Vehicles (other subcats) JSON  -> {json_key}")
+
+    elif has_any_subsubcategory(records):
+        # Category has sub-sub-categories somewhere -- one file per
+        # subcategory, sheets inside = sub-subcategories.
+        subcat_files = build_subcategory_files(records)
+        upload_subcategory_files(subcat_files, cat0_name_l1, dt)
+
     else:
+        # Flat category (subcategories only, no sub-subcategories anywhere) --
+        # unchanged: one combined file, one sheet per subcategory.
         excel_buf = build_excel(sheets)
         excel_key = upload_buffer(
             excel_buf,
@@ -410,6 +574,19 @@ def run(csv_path: str):
     if failed_matches:
         with open(failed_matches[0], "r", encoding="utf-8") as f:
             failed_data = json.load(f)
+
+        total_failed = failed_data.get("total_failed", 0)
+        requests_total = 0
+        stats_matches = glob.glob(f"request_stats_{cat0_slug}.json") or glob.glob("request_stats_*.json")
+        if stats_matches:
+            with open(stats_matches[0], "r", encoding="utf-8") as f:
+                stats_data = json.load(f)
+            requests_total = stats_data.get("per_source", {}).get("scraping_pages", 0)
+
+        failed_data["error_rate_pct"] = (
+            round(total_failed / requests_total * 100, 2) if requests_total > 0 else 0
+        )
+
         failed_bytes = json.dumps(failed_data, ensure_ascii=False, indent=2).encode("utf-8")
         failed_key = upload_buffer(
             io.BytesIO(failed_bytes),
@@ -419,7 +596,7 @@ def run(csv_path: str):
             content_type="application/json",
             dt=dt,
         )
-        print(f"Failed -> {failed_key} ({failed_data['total_failed']} failed)")
+        print(f"Failed -> {failed_key} ({failed_data['total_failed']} failed, {failed_data['error_rate_pct']}% error rate)")
     else:
         print("No failed_pages_*.json found -- skipping failed.json upload.")
 

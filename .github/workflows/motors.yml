@@ -19,7 +19,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Scrape motors
-        run: python main.py
+        run: python main_motors.py
 
       - name: Clean & upload to R2
         env:

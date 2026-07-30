@@ -42,8 +42,8 @@ def get_r2_client():
 def build_dksa_key(category_display: str, file_type: str, filename: str, dt: datetime = None) -> str:
     """
     Date-partitioned layout:
-    DKSA/year=YYYY/month=MM/day=DD/{Category Display Name}/{file_type}/{filename}
-    e.g. DKSA/year=2026/month=07/day=23/Home & Garden/images/12345-1.webp
+    DKSA/{Category Display Name}/year=YYYY/month=MM/day=DD/{file_type}/{filename}
+    e.g. DKSA/Home & Garden/year=2026/month=07/day=23/images/12345-1.webp
     """
     if dt is None:
         dt = datetime.now()
@@ -52,7 +52,7 @@ def build_dksa_key(category_display: str, file_type: str, filename: str, dt: dat
     month = f"month={dt.strftime('%m')}"
     day = f"day={dt.strftime('%d')}"
 
-    return f"DKSA/{year}/{month}/{day}/{category_display}/{file_type}/{filename}"
+    return f"DKSA/{category_display}/{year}/{month}/{day}/{file_type}/{filename}"
 
 
 def upload_buffer(

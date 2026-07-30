@@ -83,7 +83,7 @@ def download_and_upload_images(urls: list[str], car_ref: str, dt: datetime) -> l
                 img.save(buf, format="WEBP", quality=100, method=6)
                 buf.seek(0)
 
-                r2_key = upload_buffer(buf, filename=filename, category_display= 'motors', file_type=file_type,
+                r2_key = upload_buffer(buf, filename=filename, category_display= 'motors', file_type="images",
                                                         content_type="image/webp", dt=dt)
                 if r2_key:
                     r2_paths.append(r2_key)

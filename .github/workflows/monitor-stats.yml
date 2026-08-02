@@ -1,8 +1,8 @@
-name: DKSA Monitor Stats
+name: DKSA Monitor
 
 on:
   workflow_run:
-    workflows: ["DKSA"]
+    workflows: ["DKSA Motors"]
     types:
       - completed
   workflow_dispatch:

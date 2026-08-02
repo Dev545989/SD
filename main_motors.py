@@ -1,8 +1,10 @@
-import requests
-import pandas as pd
+import argparse
 import json
-import time
 import random
+import time
+
+import pandas as pd
+import requests
 from request_tracker import tracker
 
 BASE_URL = "https://content.dubizzle.sa/api/new-cars/all-new-cars"
@@ -90,60 +92,15 @@ def cars_details(slug_url, max_retries: int = 3):
     return pd.DataFrame([row_data])
 
 
-def main():
-    print('Scraping all motors new cars ....')
-    all_cars_df = get_all_motors()
-
-    slug_url_list = all_cars_df['url'].values.tolist()
-
-    print('Scraping details of each car')
-    dfs = []
-    failed_urls = []
-
-    for i, slug_url in enumerate(slug_url_list):
-        print(f'Scraping [{i + 1}/{len(slug_url_list)}]')
-        df = cars_details(slug_url)
-        if df is not None:
-            dfs.append(df)
-        else:
-            failed_urls.append(slug_url)
-            print(f"  [FAILED] Skipping: {slug_url}")
-
-        delay = random.uniform(3, 6)
-        print(f"  Waiting {delay:.2f}s before next request...")
-        time.sleep(delay)
-
-    print('Finished getting all car details.')
-
-    total_attempted = len(slug_url_list)
-    total_failed = len(failed_urls)
-    failed_pct = round(total_failed / total_attempted * 100, 2) if total_attempted > 0 else 0
-
-    with open("failed_urls_motors.json", "w", encoding="utf-8") as f:
-        json.dump({
-            "total_failed": total_failed,
-            "failed_percentage": failed_pct,
-            "failed_urls": failed_urls,
-        }, f, ensure_ascii=False, indent=2)
-    print(f"Failed: {total_failed}/{total_attempted} ({failed_pct}%)")
-
-    stats = tracker.save("request_stats_motors.json")
-    print(f"\n--- Combined Request Stats ---")
-    print(f"Total: {stats['total_requests']} req | {stats['total_req_per_min']} req/min")
-
-    if not dfs:
-        print("No car details scraped -- nothing to save.")
-        return
-
-    final_df = pd.concat(dfs, ignore_index=True)
+def _flatten_overview_data(df: pd.DataFrame) -> pd.DataFrame:
     col = "overview_data"
+    if col not in df.columns:
+        return df
 
-    final_df[col] = final_df[col].apply(
-        lambda x: json.loads(x) if pd.notna(x) and x else {}
-    )
+    df[col] = df[col].apply(lambda x: json.loads(x) if pd.notna(x) and x else {})
 
     rows = []
-    for item in final_df[col]:
+    for item in df[col]:
         row = {}
         for key, value in item.items():
             if isinstance(value, (dict, list)):
@@ -153,12 +110,79 @@ def main():
         rows.append(row)
 
     overview_df = pd.DataFrame(rows)
-    final_df = pd.concat([final_df.drop(columns=[col]), overview_df], axis=1)
+    return pd.concat([df.drop(columns=[col]), overview_df], axis=1)
 
-    final_df.to_csv("all_motors_cars.csv", index=False, encoding="utf-8-sig")
-    final_df.to_json("all_motors_cars.json", orient="records", force_ascii=False, indent=4)
-    print("Saved: all_motors_cars.csv / all_motors_cars.json")
+
+def run_list():
+    print('Scraping all motors new cars (listing pages only) ....')
+    all_cars_df = get_all_motors()
+    print(f"Listing phase done: {len(all_cars_df)} cars found. Run --mode details next.")
+
+
+def run_details(start: int, end: int):
+    all_cars_df = pd.read_csv("new_cars.csv")
+    slug_url_list = all_cars_df['url'].values.tolist()[start:end]
+
+    print(f"Scraping details for cars [{start}:{end}] ({len(slug_url_list)} cars)")
+
+    dfs = []
+    failed_urls = []
+
+    for i, slug_url in enumerate(slug_url_list):
+        print(f'Scraping [{i + 1}/{len(slug_url_list)}] (global index {start + i})')
+        df = cars_details(slug_url)
+        if df is not None:
+            dfs.append(df)
+        else:
+            failed_urls.append(slug_url)
+            print(f"  [FAILED] Skipping: {slug_url}")
+
+        if i < len(slug_url_list) - 1:
+            delay = random.uniform(3, 6)
+            print(f"  Waiting {delay:.2f}s before next request...")
+            time.sleep(delay)
+
+    print('Finished getting details for this chunk.')
+
+    total_attempted = len(slug_url_list)
+    total_failed = len(failed_urls)
+    failed_pct = round(total_failed / total_attempted * 100, 2) if total_attempted > 0 else 0
+
+    with open(f"failed_urls_motors_{start}_{end}.json", "w", encoding="utf-8") as f:
+        json.dump({
+            "total_failed": total_failed,
+            "failed_percentage": failed_pct,
+            "failed_urls": failed_urls,
+        }, f, ensure_ascii=False, indent=2)
+    print(f"Failed: {total_failed}/{total_attempted} ({failed_pct}%)")
+
+    stats = tracker.save(f"request_stats_motors_{start}_{end}.json")
+    print(f"\n--- Chunk Request Stats ---")
+    print(f"Total: {stats['total_requests']} req | {stats['total_req_per_min']} req/min")
+
+    if not dfs:
+        print("No car details scraped in this chunk -- nothing to save.")
+        # still write empty outputs so the merge step has consistent files to skip
+        pd.DataFrame().to_csv(f"car_details_{start}_{end}.csv", index=False, encoding="utf-8-sig")
+        return
+
+    chunk_df = pd.concat(dfs, ignore_index=True)
+    chunk_df = _flatten_overview_data(chunk_df)
+
+    chunk_df.to_csv(f"car_details_{start}_{end}.csv", index=False, encoding="utf-8-sig")
+    print(f"Saved: car_details_{start}_{end}.csv ({len(chunk_df)} rows)")
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", choices=["list", "details"], required=True)
+    parser.add_argument("--start", type=int, default=0)
+    parser.add_argument("--end", type=int, default=None)
+    args = parser.parse_args()
+
+    if args.mode == "list":
+        run_list()
+    else:
+        if args.end is None:
+            parser.error("--end is required for --mode details")
+        run_details(args.start, args.end)

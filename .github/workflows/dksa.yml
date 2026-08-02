@@ -143,7 +143,9 @@ jobs:
               region_name='auto'
           )
           bucket = os.environ['CF_R2_BUCKET_NAME']
-          key = f"DKSA/monitor/year={dt.year}/month={dt.strftime('%m')}/day={dt.strftime('%d')}/monitor.json"
+          date_folder = dt.strftime("%Y-%m-%d")
+
+          key = f"DKSA/monitor/{date_folder}/monitor.json"
           client.upload_file("monitor.json", bucket, key,
               ExtraArgs={'ContentType': 'application/json; charset=utf-8'})
           print(f"Uploaded: {key}")

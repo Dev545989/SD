@@ -1,0 +1,69 @@
+name: DKSA Monitor
+
+on:
+  workflow_run:
+    workflows: ["DKSA Motors"]
+    types:
+      - completed
+  workflow_dispatch:
+
+jobs:
+  build_stats:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install boto3 openpyxl pyyaml python-dotenv pandas
+
+      - name: Upload site.yml
+        env:
+          CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
+          CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
+        run: |
+            python << 'EOF'
+            import boto3
+            import os
+            client = boto3.client('s3',
+                        endpoint_url=os.environ['CF_R2_ENDPOINT_URL'],
+                        aws_access_key_id=os.environ['CF_R2_ACCESS_KEY_ID'],
+                        aws_secret_access_key=os.environ['CF_R2_SECRET_ACCESS_KEY'],
+                        region_name='auto'
+                    )
+            local_file = "monitor/site.yml" 
+            object_key = "monitor-sites/DKSA/site.yml"
+            client.upload_file(local_file, os.environ['CF_R2_BUCKET_NAME'], object_key)
+            print(f"Uploaded to {os.environ['CF_R2_BUCKET_NAME']}/{object_key}")
+            EOF
+
+      - name: Upload websites-config.yml
+        env:
+          CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
+          CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
+        run: python monitor/build_monitor_data.py --prefix DKSA --upload-config
+
+      - name: Upload monitor_status.yml
+        env:
+          CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
+          CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
+        run: python monitor/build_monitor_data.py --prefix DKSA --build-stats --days 1
+        
+      - name: Upload report.json
+        env:
+          CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
+          CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
+        run: |
+          DATE_PREFIX=$(date +'%Y-%m-%d')
+          python monitor/build_monitor_data.py --prefix DKSA --report-date "$DATE_PREFIX"

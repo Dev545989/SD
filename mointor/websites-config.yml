@@ -1,0 +1,432 @@
+meta:
+  website: dubizzle.sa/en/             # All scrapers target this domain
+  country: Saudi Arabia
+  github_username: "Dev545989"
+  repo: SD                             # Single repo confirmed from workspace
+  run_environment: GitHub Actions      # All pipelines run on ubuntu-22.04
+  r2_bucket: "testing"                 # Your R2 bucket name (same as CF_R2_BUCKET_NAME secret)
+  r2_prefix: "DKSA"                    # Fixed prefix inside the bucket
+
+# ------------------------------------------------------------
+# SCRAPERS — 11 categories across 1 batche
+# ------------------------------------------------------------
+scrapers:
+
+  - name: Vehicles
+    url: https://www.dubizzle.sa/en/vehicles/
+    batch: "DKSA"
+    workflow_file: dksa.yml
+    r2_path: "{r2_bucket}/DKSA/Vehicles"
+
+  - name: Mobile Phones & Accessories
+    url: https://www.dubizzle.sa/en/mobile-phones-accessories/
+    batch: "DKSA"
+    workflow_file: dksa.yml
+    r2_path: "{r2_bucket}/DKSA/Mobile Phones & Accessories"
+
+  - name: Electronics & Home Appliances
+    url: https://www.dubizzle.sa/en/electronics-home-appliances/
+    batch: "DKSA"
+    workflow_file: dksa.yml
+    r2_path: "{r2_bucket}/DKSA/Electronics & Home Appliances"
+
+  - name: Home & Garden
+    url: https://www.dubizzle.sa/en/home-garden/
+    batch: "DKSA"
+    workflow_file: dksa.yml
+    r2_path: "{r2_bucket}/DKSA/Home & Garden"
+
+  - name: Fashion & Beauty
+    url: https://www.dubizzle.sa/en/fashion-beauty/
+    batch: "DKSA"
+    workflow_file: dksa.yml
+    r2_path: "{r2_bucket}/DKSA/Fashion & Beauty"
+
+  - name: Pets
+    url: https://www.dubizzle.sa/en/pets/
+    batch: "DKSA"
+    workflow_file: dksa.yml
+    r2_path: "{r2_bucket}/DKSA/Pets"
+
+  - name: Kids & Babies
+    url: https://www.dubizzle.sa/en/kids-babies/
+    batch: "DKSA"
+    workflow_file: dksa.yml
+    r2_path: "{r2_bucket}/DKSA/Kids & Babies"
+
+  - name: Sporting Goods & Bikes
+    url: https://www.dubizzle.sa/en/sporting-goods-bikes/
+    batch: "DKSA"
+    workflow_file: dksa.yml
+    r2_path: "{r2_bucket}/DKSA/Sporting Goods & Bikes"
+
+  - name: Hobbies, Music, Art & Books
+    url: https://www.dubizzle.sa/en/hobbies-music-art-books/
+    batch: "DKSA"
+    workflow_file: dksa.yml
+    r2_path: "{r2_bucket}/DKSA/Hobbies, Music, Art & Books"
+
+  - name: Jobs
+    url: https://www.dubizzle.sa/en/jobs-services/
+    batch: "DKSA"
+    workflow_file: dksa.yml
+    r2_path: "{r2_bucket}/DKSA/Jobs"
+
+  - name: Business & Industrial
+    url: https://www.dubizzle.sa/en/business-industrial/
+    batch: "DKSA"
+    workflow_file: dksa.yml
+    r2_path: "{r2_bucket}/DKSA/Business & Industrial"
+
+  - name: motors
+    url: https://www.dubizzle.sa/en/motors/new-cars/
+    batch: "DKSA"
+    workflow_file: dksa.yml
+    r2_path: "{r2_bucket}/DKSA/motors"
+
+# ------------------------------------------------------------
+# PIPELINE CHAIN (auto-detected from workflow triggers)
+# Batch DKSA → DKSA Motors → DKSA Monitor (daily at 00:00 UTC)
+# ------------------------------------------------------------
+pipeline_chain:
+  - batch: "DKSA"
+    trigger: "cron: '0 0 * * *'"
+    triggers_next: null
+pipeline_chain:
+  - batch: "DKSA"
+    trigger: "cron: '0 0 * * *'"
+    triggers_next: "DKSA Motors"
+  - batch: "DKSA Motors"
+    trigger: "on_completion: DKSA"
+    triggers_next: "DKSA Monitor"
+  - batch: "DKSA Monitor"
+    trigger: "workflow_dispatch (triggered by DKSA Motors)"
+    triggers_next: null
+
+# ============================================================
+# EXCEL SCHEMA — Per-scraper .xlsx output validation
+# One entry per scraper; each describes the sheets, required
+# column headers, expected row range, and min file size.
+# ============================================================
+
+# ── REUSABLE COLUMN ANCHORS ─────────────────────────────────
+
+_col_standard_listing: &col_standard_listing
+  - activeProducts
+  - canApplyBadges
+  - category
+  - category.lvl0
+  - category.lvl1
+  - contactInfo
+  - createdAt
+  - description
+  - externalID
+  - extraFields
+  - format
+  - formattedExtraFields
+  - geography
+  - id
+  - isSellerVerified
+  - keywords
+  - location
+  - location.lvl0
+  - location.lvl1
+  - location.lvl2
+  - objectID
+  - photoCount
+  - photo_urls
+  - product
+  - productInfo
+  - productScore
+  - purpose
+  - slug
+  - sourceID
+  - state
+  - timestamp
+  - title
+  - type
+  - updatedAt
+  - userExternalID
+
+_col_vehicles_listing: &col_vehicles_listing
+  - agency
+  - activeProducts
+  - canApplyBadges
+  - category
+  - category.lvl0
+  - category.lvl1
+  - contactInfo
+  - createdAt
+  - description
+  - externalID
+  - extraFields
+  - format
+  - formattedExtraFields
+  - geography
+  - id
+  - isSellerVerified
+  - keywords
+  - location
+  - location.lvl0
+  - location.lvl1
+  - location.lvl2
+  - objectID
+  - photoCount
+  - photo_urls
+  - product
+  - productInfo
+  - productScore
+  - purpose
+  - slug
+  - sourceID
+  - state
+  - timestamp
+  - title
+  - type
+  - updatedAt
+  - userExternalID
+  
+_col_fashion_beauty_listing: &col_fashion_beauty_listing
+  - activeProducts
+  - canApplyBadges
+  - category
+  - category.lvl0
+  - category.lvl1
+  - category.lvl2
+  - contactInfo
+  - createdAt
+  - description
+  - externalID
+  - extraFields
+  - format
+  - formattedExtraFields
+  - geography
+  - id
+  - isSellerVerified
+  - keywords
+  - location
+  - location.lvl0
+  - location.lvl1
+  - location.lvl2
+  - objectID
+  - photoCount
+  - photo_urls
+  - product
+  - productInfo
+  - productScore
+  - purpose
+  - slug
+  - sourceID
+  - state
+  - timestamp
+  - title
+  - type
+  - updatedAt
+  - userExternalID
+
+_col_electronics_home_appliances_listing: &col_electronics_home_appliances_listing
+  - activeProducts
+  - canApplyBadges
+  - category
+  - category.lvl0
+  - category.lvl1
+  - category.lvl2
+  - contactInfo
+  - createdAt
+  - description
+  - externalID
+  - extraFields
+  - format
+  - formattedExtraFields
+  - geography
+  - id
+  - isSellerVerified
+  - keywords
+  - location
+  - location.lvl0
+  - location.lvl1
+  - location.lvl2
+  - objectID
+  - photoCount
+  - photo_urls
+  - product
+  - productInfo
+  - productScore
+  - purpose
+  - slug
+  - sourceID
+  - state
+  - timestamp
+  - title
+  - type
+  - updatedAt
+  - userExternalID
+
+_col_motors_listings: &col_motors_listings
+  - version_id
+  - version_name
+  - version_name_l1
+  - version_slug
+  - model_slug
+  - make_slug
+  - value
+  - meta_description
+  - meta_title
+  - h1
+  - meta_title_l1
+  - meta_description_l1
+  - h1_l1
+  - breadCrumbs
+  - reviews_section
+  - recommended_cars
+  - features_specifications
+  - faqs
+  - popular_comparisons
+  - overview_data.info_data
+  - overview_data.images
+  - overview_data.colors
+
+# ── PER-SCRAPER SCHEMAS ──────────────────────────────────────
+excel_schema:
+
+  # ── BATCH DKSA ─────────────────────────────────────────────────
+
+  - scraper: Vehicles
+    excel_file_pattern: "{brand_name}.xlsx"
+    sheets:
+      - name: "{car_type}"
+        required_columns: *col_vehicles_listing
+        row_count_range: [1, 1]
+    min_file_size_kb: 5
+
+  - scraper: Mobile Phones & Accessories
+    excel_file_pattern: "{category_slug}.xlsx"
+    sheets:
+      - name: "{child_category or Main}"                
+        required_columns: *col_standard_listing
+        row_count_range: [1, 1]
+    min_file_size_kb: 5
+
+  - scraper: Electronics & Home Appliances
+    excel_file_pattern: "{subcategory_slug}.xlsx"
+    sheets:
+      - name: "{child_category or Main}"                
+        required_columns: *col_electronics_home_appliances_listing
+        row_count_range: [1, 1]
+    min_file_size_kb: 5
+
+  - scraper: Home & Garden
+    excel_file_pattern: "{subcategory_slug}.xlsx"
+    sheets:
+      - name: "{child_category or Main}"                
+        required_columns: *col_standard_listing
+        row_count_range: [1, 1]
+    min_file_size_kb: 5
+
+  - scraper: Fashion & Beauty
+    excel_file_pattern: "{subcategory_slug}.xlsx"
+    sheets:
+      - name: "{child_category or Main}"                
+        required_columns: *col_fashion_beauty_listing
+        row_count_range: [1, 1]
+    min_file_size_kb: 5
+
+  - scraper: Pets
+    excel_file_pattern: "{category_slug}.xlsx"
+    sheets:
+      - name: "{child_category or Main}"                
+        required_columns: *col_standard_listing
+        row_count_range: [1, 1]
+    min_file_size_kb: 5
+
+  - scraper: Kids & Babies
+    excel_file_pattern: "{category_slug}.xlsx"
+    sheets:
+      - name: "{child_category or Main}"                
+        required_columns: *col_standard_listing
+        row_count_range: [1, 1]
+    min_file_size_kb: 5
+
+  - scraper: Sporting Goods & Bikes
+    excel_file_pattern: "{category_slug}.xlsx"
+    sheets:
+      - name: "{child_category or Main}"                
+        required_columns: *col_standard_listing
+        row_count_range: [1, 1]
+    min_file_size_kb: 5
+
+  - scraper: Hobbies, Music, Art & Books
+    excel_file_pattern: "{category_slug}.xlsx"
+    sheets:
+      - name: "{child_category or Main}"                
+        required_columns: *col_standard_listing
+        row_count_range: [1, 1]
+    min_file_size_kb: 5
+
+  - scraper: Jobs
+    excel_file_pattern: "{category_slug}.xlsx"
+    sheets:
+      - name: "{child_category or Main}"                
+        required_columns: *col_standard_listing
+        row_count_range: [1, 1]
+    min_file_size_kb: 5
+
+  - scraper: Business & Industrial
+    excel_file_pattern: "{category_slug}.xlsx"
+    sheets:
+      - name: "{child_category or Main}"                
+        required_columns: *col_standard_listing
+        row_count_range: [1, 1]
+    min_file_size_kb: 5
+
+  - scraper: motors
+    excel_file_pattern: "{brand_name}.xlsx"
+    sheets:
+      - name: "{car_type}"                
+        required_columns: *col_motors_listings
+        row_count_range: [1, 1]
+    min_file_size_kb: 5
+
+
+# ============================================================
+# ALERT THRESHS — schema validation + historical trend alarms
+# Trend multipliers calibrated against monitor_stats.yml
+# (observed 2026-06-07 → 2026-06-13, 7 days, 23 scrapers)
+# ============================================================
+alert_thresholds:
+  enabled: true
+
+  # Fire webhook when ANY scraper fails schema / trend / missing-files check
+  alert_on_any_failure: true
+
+  # Historical trend checks (requires monitor_stats.yml in R2)
+  trend:
+    min_observed_days: 3
+    min_row_pct_of_hist_min: 30       # alert if rows < 30% of historical min per sheet
+    max_row_pct_of_hist_max: 300      # alert if rows > 300% of historical max per sheet
+    min_file_size_pct_of_hist_min: 50 # alert if file < 50% of historical min per scraper
+
+  # Run-level gate — skip webhook if failure rate is below this (0 = always alert)
+  max_scraper_fail_rate_pct: 0
+
+  # Per-scraper observed file-size floors (KB) from real stats × 50%, floored at schema min
+  # Used as a fast check even before trend history exists
+  observed_min_file_size_kb: 
+    Vehicles: 5
+    Mobile Phones & Accessories: 5
+    Electronics & Home Appliances: 5
+    Home & Garden: 5
+    Fashion & Beauty: 5
+    Pets: 5
+    Kids & Babies: 5 
+    Sporting Goods & Bikes: 5
+    Hobbies, Music, Art & Books: 5
+    Jobs: 5
+    Business & Industrial: 5
+    motors: 5
+
+  channels:
+    webhook:
+      enabled: true
+      # URL from env MONITOR_ALERT_WEBHOOK_URL (GitHub secret)
+      # Import monitor/n8n-email-alert-workflow.json for email via n8n

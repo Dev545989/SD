@@ -52,7 +52,7 @@ jobs:
           CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
           CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
-        run: python monitor/build_monitor_data.py --prefix DKSA --build-stats --days 1
+        run: python monitor/build_monitor_data.py --prefix DKSA --build-stats --days 2
         
       - name: Upload report.json
         env:
@@ -61,5 +61,6 @@ jobs:
           CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
           CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
         run: |
-          DATE_PREFIX=$(date +'%Y-%m-%d')
+          DATE_PREFIX=$(date -d 'yesterday' +'%Y-%m-%d')
+          echo "Generating report for: $DATE_PREFIX"
           python monitor/build_monitor_data.py --prefix DKSA --report-date "$DATE_PREFIX"

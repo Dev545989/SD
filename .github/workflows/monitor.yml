@@ -1,10 +1,6 @@
 name: DKSA Monitor
 
 on:
-  workflow_run:
-    workflows: ["DKSA Motors"]
-    types:
-      - completed
   workflow_dispatch:
 
 jobs:

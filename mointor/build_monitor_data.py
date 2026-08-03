@@ -140,6 +140,7 @@ import boto3
 import json
 import logging
 import os
+import json
 import yaml
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
@@ -388,6 +389,66 @@ def get_categories_ads(
     return categories
 
 
+def collect_request_metrics(
+    client,
+    bucket: str,
+    scraper_configs: List[Dict],
+    target_date: datetime,
+) -> Dict[str, Any]:
+    """
+    Collect request_metrics from all scrapers' summary.json for a given date.
+    """
+    metrics = {
+        "requests_total": 0,
+        "requests_failed": 0,
+        "duration_sec": 0.0,
+        "requests_per_min": 0.0,
+        "error_rate_pct": None,
+        "scrapers_with_metrics": 0,
+    }
+    
+    for scraper_config in scraper_configs:
+        scraper_name = scraper_config.get("name")
+        r2_base = r2_base_prefix(scraper_config.get("r2_path", ""))
+        if not r2_base:
+            continue
+        
+        part_dt = partition_date_for_data_date(target_date)
+        
+        # Get summary.json from R2
+        best_total, best_key, best_breakdown = load_json_summaries(
+            client, bucket, r2_base, part_dt
+        )
+        
+        if best_key:
+            try:
+                resp = client.get_object(Bucket=bucket, Key=best_key)
+                data = json.loads(resp["Body"].read().decode("utf-8"))
+                
+                request_metrics = data.get("request_metrics", {})
+                if request_metrics:
+                    metrics["requests_total"] += request_metrics.get("requests_total", 0)
+                    metrics["requests_failed"] += request_metrics.get("requests_failed", 0)
+                    metrics["scrapers_with_metrics"] += 1
+                    
+                    duration = request_metrics.get("duration_sec", 0)
+                    if duration and duration > metrics["duration_sec"]:
+                        metrics["duration_sec"] = duration
+            except Exception as e:
+                pass
+    
+    if metrics["requests_total"] > 0:
+        metrics["error_rate_pct"] = round(
+            metrics["requests_failed"] / metrics["requests_total"] * 100.0, 2
+        )
+    
+    if metrics["duration_sec"] > 0:
+        metrics["requests_per_min"] = round(
+            metrics["requests_total"] / (metrics["duration_sec"] / 60.0), 2
+        )
+    
+    return metrics
+
 # ── CONFIG FUNCTIONS ──────────────────────────────────────────────────────
 
 def load_local_config() -> Dict:
@@ -591,30 +652,21 @@ def build_monitor_report(
     else:
         dt = datetime.utcnow() - timedelta(days=1)
     
-    # Load site config if exists
     try:
         site = load_site_config_from_r2(client, bucket, r2_prefix)
-        log.info(f"Loaded site config for {r2_prefix}")
     except FileNotFoundError:
-        log.info(f"No site config found for {r2_prefix}, using minimal config")
         site = {
             "folder": r2_prefix,
             "r2_prefix": r2_prefix,
             "site_id": r2_prefix,
         }
     
-    # Get monitor paths using monitor_r2
-    keys = monitor_data_keys(site)
-    
-    # Load config from LOCAL file ONLY
     config = get_config_for_workflow(r2_prefix, client, bucket)
     if not config:
-        log.warning("No local config found")
         config = {}
     
     scrapers = config.get("scrapers", [])
     
-    # Build report
     report = {
         "scraped_at": datetime.utcnow().isoformat(),
         "saved_to_s3_date": dt.strftime("%Y-%m-%d"),
@@ -623,7 +675,6 @@ def build_monitor_report(
         "r2_prefix": r2_prefix,
     }
     
-    # Get categories with ads counts
     categories = get_categories_ads(
         client, bucket, scrapers, dt, download_files=True
     )
@@ -637,14 +688,16 @@ def build_monitor_report(
         "categories": categories,
     })
     
-    # Get total files count
+    report["request_metrics"] = collect_request_metrics(
+        client, bucket, scrapers, dt
+    )
+    
     try:
         total_files = count_site_r2_files(client, bucket, r2_prefix)
         report["total_r2_files"] = total_files
     except Exception:
-        log.warning("Could not count total R2 files")
+        pass
     
-    # Save to R2 if requested using monitor_r2
     if save_to_r2:
         partition_date = dt.strftime("%Y-%m-%d")
         report_key = report_r2_key(site, partition_date)
@@ -657,7 +710,6 @@ def build_monitor_report(
                 Body=report_body,
                 ContentType="application/json"
             )
-            log.info(f"Report saved to r2://{bucket}/{report_key}")
         except Exception as e:
             log.error(f"Failed to save report to R2: {e}")
     

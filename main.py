@@ -60,17 +60,13 @@ params = {
 
 def send_query(query):
     payload = json.dumps({"index": INDEX}) + "\n" + json.dumps(query) + "\n"
-
     for attempt in range(MAX_RETRIES):
         try:
             response = requests.post(URL, params=params, headers=headers, data=payload, timeout=60)
-
             if response.status_code in [429, 500, 502, 503, 504]:
                 raise Exception(f"HTTP {response.status_code}")
-
             response.raise_for_status()
             return response.json()
-
         except Exception as e:
             print(f"Attempt {attempt + 1}/{MAX_RETRIES}: {e}")
             if attempt == MAX_RETRIES - 1:
@@ -86,12 +82,10 @@ def build_query(category_slug, search_after=None, product=None):
         {"term": {"location.externalID": LOCATION_ID}},
     ]
     must_not = []
-
     if product is None:
         must_not.append({"terms": {"product": ["featured", "elite"]}})
     else:
         must.append({"term": {"product": product}})
-
     query = {
         "size": PAGE_SIZE,
         "track_total_hits": 200000,
@@ -99,26 +93,21 @@ def build_query(category_slug, search_after=None, product=None):
         "sort": [{"timestamp": {"order": "desc"}}, {"id": {"order": "desc"}}],
         "timeout": "5s",
     }
-
     if search_after is not None:
         query["search_after"] = search_after
-
     return query
 
 
 def scrape(category_slug, product=None):
     title = "NORMAL" if product is None else product.upper()
     print(f"\n========== {category_slug} / {title} ==========")
-
     all_records = []
     failed_pages = []
     search_after = None
     page_number = 0
-
     while True:
         page_number += 1
         query = build_query(category_slug, search_after=search_after, product=product)
-
         try:
             data = send_query(query)
             tracker.log_request(source="scraping_pages", success=True)
@@ -132,13 +121,10 @@ def scrape(category_slug, product=None):
             })
             print(f"  [FAILED] page {page_number}: {e}")
             break
-
         responses = data.get("responses", [])
-
         if not responses:
             print(json.dumps(data, indent=2))
             break
-
         response = responses[0]
         if "error" in response:
             print(json.dumps(response["error"], indent=2))
@@ -149,52 +135,39 @@ def scrape(category_slug, product=None):
                 "error": json.dumps(response["error"], ensure_ascii=False),
             })
             return [], failed_pages
-
         hits_obj = response.get("hits", {})
         total = hits_obj.get("total", {}).get("value", 0)
         hits = hits_obj.get("hits", [])
-
         print(f"{title}: {len(hits)} | Collected={len(all_records)} | Total={total}")
-
         if not hits:
             if total == 0:
                 print(f"No {title.lower()} ads found.")
             else:
                 print(json.dumps(response, indent=2))
             break
-
         all_records.extend(hit["_source"] for hit in hits)
-
         if len(hits) < PAGE_SIZE:
             break
-
         search_after = hits[-1]["sort"]
         delay = random.uniform(0.5, 2.5)
         print(f"  Waiting {delay:.2f}s before next request...")
         time.sleep(delay)
-
     print(f"{title} Total = {len(all_records)}")
     return all_records, failed_pages
 
 
 def filter_yesterday_hits(hits):
     filtered = []
-
     for hit in hits:
         created_at = hit.get("createdAt")
-
         if created_at is None:
             continue
-
         try:
             dt = datetime.fromtimestamp(float(created_at), tz=timezone.utc)
-
             if dt.date() == TARGET_DATE:
                 filtered.append(hit)
-
         except (ValueError, TypeError):
             pass
-
     return filtered
 
 
@@ -220,11 +193,11 @@ def run(category_slug: str, out_dir: str = "."):
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, f"{category_slug}.csv")
 
+    # Save request stats
     stats_file = f"request_stats_{category_slug}.json"
     stats = tracker.save(stats_file)
 
-    # Written locally so clean_and_upload.py can pick it up and upload it
-    # next to summary.json for this same category.
+    # Save failed pages
     failed_file = f"failed_pages_{category_slug}.json"
     with open(failed_file, "w", encoding="utf-8") as f:
         json.dump({

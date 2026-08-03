@@ -11,7 +11,6 @@ def merge_details(details_dir: str, output_csv: str):
     if not files:
         print(f"No car_details_*.csv files found under {details_dir}")
         return
-
     dfs = []
     for f in files:
         if os.path.getsize(f) == 0:
@@ -19,14 +18,10 @@ def merge_details(details_dir: str, output_csv: str):
         df = pd.read_csv(f)
         if not df.empty:
             dfs.append(df)
-
     if not dfs:
         print("All chunk files were empty -- nothing to merge.")
         return
-
     merged = pd.concat(dfs, ignore_index=True)
-    # Stable per-row key, independent of any car-specific column, used to
-    # join the image-download chunk results back onto the right row later.
     merged.insert(0, "_row_id", range(len(merged)))
     merged.to_csv(output_csv, index=False, encoding="utf-8-sig")
     print(f"Merged {len(files)} chunk file(s) -> {output_csv} ({len(merged)} rows)")
@@ -37,13 +32,11 @@ def merge_failed(details_dir: str, output_json: str):
     if not files:
         print(f"No failed_urls_motors_*.json files found under {details_dir}")
         return
-
     all_failed_urls = []
     for f in files:
         with open(f, "r", encoding="utf-8") as fh:
             data = json.load(fh)
         all_failed_urls.extend(data.get("failed_urls", []))
-
     with open(output_json, "w", encoding="utf-8") as fh:
         json.dump({
             "total_failed": len(all_failed_urls),
@@ -61,17 +54,22 @@ def merge_stats(details_dir: str, output_json: str):
     total_requests = 0
     per_source = {}
     max_duration_min = 0.0
+    total_duration_seconds = 0.0
+    has_total_duration = False
 
     for f in files:
         with open(f, "r", encoding="utf-8") as fh:
             stats = json.load(fh)
         total_requests += stats.get("total_requests", 0)
         max_duration_min = max(max_duration_min, stats.get("total_duration_min", 0) or 0)
+        
+        if "total_duration" in stats:
+            total_duration_seconds = max(total_duration_seconds, stats.get("total_duration", 0))
+            has_total_duration = True
+        
         for source, count in stats.get("per_source", {}).items():
             per_source[source] = per_source.get(source, 0) + count
 
-    # Chunks ran in parallel, so summing per-chunk durations would overstate
-    # wall-clock time -- use the longest chunk's duration as the estimate.
     total_req_per_min = round(total_requests / max_duration_min, 2) if max_duration_min > 0 else total_requests
 
     merged = {
@@ -80,6 +78,9 @@ def merge_stats(details_dir: str, output_json: str):
         "total_req_per_min": total_req_per_min,
         "per_source": per_source,
     }
+    
+    if has_total_duration:
+        merged["total_duration"] = total_duration_seconds
 
     with open(output_json, "w", encoding="utf-8") as fh:
         json.dump(merged, fh, ensure_ascii=False, indent=2)

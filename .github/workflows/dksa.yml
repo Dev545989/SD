@@ -6,15 +6,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  start_marker:
-    runs-on: ubuntu-latest
-    outputs:
-      started_at: ${{ steps.mark.outputs.started_at }}
-    steps:
-      - name: Record start time
-        id: mark
-        run: echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" >> "$GITHUB_OUTPUT"
-
   scrape-and-clean:
     runs-on: ubuntu-latest
     strategy:
@@ -37,6 +28,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Get workflow start time from GitHub API (accurate)
+      - name: Get workflow start time
+        id: workflow_start
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          STARTED_AT=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }} --jq .run_started_at)
+          START_TIMESTAMP=$(date -d "$STARTED_AT" +%s)
+          echo "start_time=$START_TIMESTAMP" >> "$GITHUB_OUTPUT"
+          echo "Workflow started at: $STARTED_AT (timestamp: $START_TIMESTAMP)"
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -58,95 +60,5 @@ jobs:
           CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
           CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
-        run: python clean_and_upload.py data/${{ matrix.category }}.csv
-
-      - name: Upload monitor artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: monitor-${{ matrix.category }}
-          path: |
-            monitor_entry_${{ matrix.category }}.json
-            request_stats_${{ matrix.category }}.json
-            failed_pages_${{ matrix.category }}.json
-          if-no-files-found: ignore
-
-  build_monitor:
-    runs-on: ubuntu-latest
-    needs: [start_marker, scrape-and-clean]
-    if: ${{ always() }}
-    steps:
-      - name: Download monitor artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: monitor-*
-          merge-multiple: true
-          path: monitor_parts/
-
-      - name: Build and upload monitor.json
-        env:
-          CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
-          CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
-          CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
-          CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
-          STARTED_AT: ${{ needs.start_marker.outputs.started_at }}
-        run: |
-          pip install boto3
-          python << 'EOF'
-          import glob, json, os, boto3
-          from datetime import datetime, timezone
-
-          categories = []
-          for f in sorted(glob.glob('monitor_parts/monitor_entry_*.json')):
-              with open(f, 'r', encoding='utf-8') as fh:
-                  categories.append(json.load(fh))
-
-          requests_total = 0
-          for f in glob.glob('monitor_parts/request_stats_*.json'):
-              with open(f, 'r', encoding='utf-8') as fh:
-                  requests_total += json.load(fh).get('total_requests', 0)
-
-          requests_failed = 0
-          for f in glob.glob('monitor_parts/failed_pages_*.json'):
-              with open(f, 'r', encoding='utf-8') as fh:
-                  requests_failed += json.load(fh).get('total_failed', 0)
-
-          error_rate_pct = round(requests_failed / requests_total * 100, 2) if requests_total else 0
-
-          started_at = datetime.fromisoformat(os.environ['STARTED_AT'].replace('Z', '+00:00'))
-          dt = datetime.now(timezone.utc)
-          duration_sec = round((dt - started_at).total_seconds(), 2)
-          requests_per_min = round(requests_total / (duration_sec / 60), 2) if duration_sec > 0 else requests_total
-
-          monitor = {
-              "scraped_at": dt.isoformat(),
-              "saved_to_s3_date": dt.strftime("%Y-%m-%d"),
-              "total_categories": len(categories),
-              "total_ads": sum(c.get("total_ads", 0) for c in categories),
-              "categories": categories,
-              "request_metrics": {
-                  "requests_total": requests_total,
-                  "requests_failed": requests_failed,
-                  "error_rate_pct": error_rate_pct,
-                  "requests_per_min": requests_per_min,
-                  "duration_sec": duration_sec,
-              },
-          }
-          with open("monitor.json", "w", encoding="utf-8") as f:
-              json.dump(monitor, f, ensure_ascii=False, indent=2)
-          print(f"Monitor: {monitor['total_categories']} cats, {monitor['total_ads']} ads, "
-                f"{requests_total} req ({requests_failed} failed, {error_rate_pct}%), {duration_sec}s total")
-
-          client = boto3.client('s3',
-              endpoint_url=os.environ['CF_R2_ENDPOINT_URL'],
-              aws_access_key_id=os.environ['CF_R2_ACCESS_KEY_ID'],
-              aws_secret_access_key=os.environ['CF_R2_SECRET_ACCESS_KEY'],
-              region_name='auto'
-          )
-          bucket = os.environ['CF_R2_BUCKET_NAME']
-          date_folder = dt.strftime("%Y-%m-%d")
-
-          key = f"DKSA/monitor/{date_folder}/monitor.json"
-          client.upload_file("monitor.json", bucket, key,
-              ExtraArgs={'ContentType': 'application/json; charset=utf-8'})
-          print(f"Uploaded: {key}")
-          EOF
+          WORKFLOW_GLOBAL_START: ${{ steps.workflow_start.outputs.start_time }}
+        run: python clean_and_upload.py data/${{ matrix.category }}.csv --date "$(date -u -d 'yesterday' +%Y-%m-%d)"

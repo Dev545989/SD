@@ -8,25 +8,15 @@ on:
   workflow_dispatch:
 
 jobs:
+  # =========================================================================
+  # 1. Scrape & Clean & Upload (all except summary.json)
+  # =========================================================================
   scrape_list:
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
-    outputs:
-      start_time: ${{ steps.workflow_start.outputs.start_time }}
 
     steps:
       - uses: actions/checkout@v4
-
-      # Get workflow start time from GitHub API (accurate)
-      - name: Get workflow start time
-        id: workflow_start
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          STARTED_AT=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }} --jq .run_started_at)
-          START_TIMESTAMP=$(date -d "$STARTED_AT" +%s)
-          echo "start_time=$START_TIMESTAMP" >> "$GITHUB_OUTPUT"
-          echo "Workflow started at: $STARTED_AT (timestamp: $START_TIMESTAMP)"
 
       - uses: actions/setup-python@v5
         with:
@@ -247,7 +237,7 @@ jobs:
 
   finalize:
     runs-on: ubuntu-latest
-    needs: [process_images, scrape_list]
+    needs: process_images
     steps:
       - uses: actions/checkout@v4
 
@@ -270,14 +260,71 @@ jobs:
           merge-multiple: true
           path: images_parts/
 
-      - name: Split by make/model & upload to R2
+      - name: Split by make/model & upload to R2 (exclude summary.json)
         env:
           CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
           CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
-          WORKFLOW_GLOBAL_START: ${{ needs.scrape_list.outputs.start_time }}
         run: |
           python motors_cleaning.py all_motors_cars.csv \
             --mode finalize \
-            --images-dir images_parts
+            --images-dir images_parts \
+            --skip-summary
+
+      - name: Upload summary placeholder (to be finalized later)
+        uses: actions/upload-artifact@v4
+        with:
+          name: summary-motors
+          path: |
+            summary_placeholder_motors.json
+          if-no-files-found: ignore
+
+  # =========================================================================
+  # 2. Finalize summaries (add duration and upload)
+  # =========================================================================
+  finalize-summaries:
+    runs-on: ubuntu-latest
+    needs: finalize
+    if: ${{ always() }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Get workflow duration from GitHub API
+      - name: Get workflow duration
+        id: workflow_duration
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          STARTED_AT=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }} --jq .run_started_at)
+          START_TIMESTAMP=$(date -d "$STARTED_AT" +%s)
+          NOW_TIMESTAMP=$(date -u +%s)
+          DURATION_SEC=$((NOW_TIMESTAMP - START_TIMESTAMP))
+          echo "start_time=$START_TIMESTAMP" >> "$GITHUB_OUTPUT"
+          echo "duration_sec=$DURATION_SEC" >> "$GITHUB_OUTPUT"
+          echo "Workflow started at: $STARTED_AT"
+          echo "Workflow duration: ${DURATION_SEC}s"
+
+      - name: Download summary placeholder
+        uses: actions/download-artifact@v4
+        with:
+          name: summary-motors
+          path: summaries/
+
+      - name: Finalize and upload summary to R2
+        env:
+          CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
+          CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
+          WORKFLOW_DURATION: ${{ steps.workflow_duration.outputs.duration_sec }}
+          WORKFLOW_START_TIME: ${{ steps.workflow_duration.outputs.start_time }}
+        run: |
+          python finalize_summaries.py --summaries-dir summaries/ --date "$(date -u -d 'yesterday' +%Y-%m-%d)" --workflow motors

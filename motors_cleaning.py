@@ -4,6 +4,7 @@ import io
 import json
 import os
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 
@@ -349,7 +350,7 @@ def upload_by_make(by_make: dict[str, dict[str, list]], dt: datetime) -> None:
         print(f"      JSON  -> {json_key}")
 
 
-def run_finalize(input_path: str, images_dir: str):
+def run_finalize(input_path: str, images_dir: str, skip_summary: bool = False):
     dt = datetime.now(timezone.utc)
     data_date = dt - timedelta(days=1)
     
@@ -410,24 +411,28 @@ def run_finalize(input_path: str, images_dir: str):
         with open("failed_urls_motors.json", "r", encoding="utf-8") as f:
             failed_data = json.load(f)
 
-    # ========================================================================
-    # Upload complete summary.json (all metrics in one file)
-    # ========================================================================
+    # Build summary
     summary = build_complete_summary_motors(by_make, data_date, stats_data, failed_data)
     
-    # Add full workflow duration
-    if workflow_global_duration is not None:
-        summary["request_metrics"]["duration_sec"] = workflow_global_duration
-    
-    summary_bytes = json.dumps(summary, ensure_ascii=False, indent=2).encode("utf-8")
-    summary_key = upload_buffer(
-        io.BytesIO(summary_bytes),
-        filename="summary.json",
-        category_display='motors',
-        file_type="summary",
-        content_type="application/json",
-        dt=data_date,
-    )
+    if skip_summary:
+        # ✅ Save placeholder locally (to be finalized later)
+        placeholder_path = "summary_placeholder_motors.json"
+        with open(placeholder_path, "w", encoding="utf-8") as f:
+            json.dump(summary, f, ensure_ascii=False, indent=2)
+        print(f"✅ Summary placeholder saved: {placeholder_path}")
+        print(f"  (Will be finalized with workflow duration later)")
+    else:
+        # ✅ Upload directly
+        summary_bytes = json.dumps(summary, ensure_ascii=False, indent=2).encode("utf-8")
+        summary_key = upload_buffer(
+            io.BytesIO(summary_bytes),
+            filename="summary.json",
+            category_display='motors',
+            file_type="summary",
+            content_type="application/json",
+            dt=data_date,
+        )
+    print(f"Summary -> {summary_key}")
     print(f"Summary -> {summary_key}")
     print(f"  - {summary['total_subcategories']} makes, {summary['total_listings']} cars")
     print(f"  - requests: {summary['request_metrics'].get('requests_total', 0)} total, {summary['request_metrics'].get('requests_failed', 0)} failed")
@@ -437,14 +442,16 @@ def run_finalize(input_path: str, images_dir: str):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Clean and upload Dubizzle KSA motors (new cars) data.")
-    parser.add_argument("input_path", nargs="?", help="Path to all_motors_cars.csv (must include _row_id)")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("input_path", nargs="?")
     parser.add_argument("--mode", choices=["images", "finalize"], default="finalize")
     parser.add_argument("--start", type=int, default=0)
     parser.add_argument("--end", type=int, default=None)
     parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--output-csv", default=None, help="[images mode] where to write the row_id/paths mapping")
-    parser.add_argument("--images-dir", default="images_parts", help="[finalize mode] folder with images_*.csv chunks")
+    parser.add_argument("--output-csv", default=None)
+    parser.add_argument("--images-dir", default="images_parts")
+    parser.add_argument("--skip-summary", action="store_true",
+                        help="Skip uploading summary, save placeholder instead")
     args = parser.parse_args()
 
     if not args.input_path:

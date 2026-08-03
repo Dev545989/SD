@@ -440,7 +440,7 @@ def build_complete_summary(records: list, cat0_name_l1: str, cat0_slug: str, dt:
 # Main run function
 # =============================================================================
 
-def run(csv_path: str, date_str: str | None = None):
+def run(csv_path: str, date_str: str | None = None, skip_summary: bool = False):
     dt = (
         datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         if date_str
@@ -600,23 +600,29 @@ def run(csv_path: str, date_str: str | None = None):
         print(f"JSON  -> {json_key}")
 
     # ========================================================================
-    # Upload complete summary.json (all metrics in one file)
+    # Build summary but don't upload if skip_summary is True
     # ========================================================================
     summary = build_complete_summary(records, cat0_name_l1, cat0_slug, dt, cat0_name_ar)
     
-    # Add full workflow duration
-    if workflow_global_duration is not None:
-        summary["request_metrics"]["duration_sec"] = workflow_global_duration
-    
-    summary_bytes = json.dumps(summary, ensure_ascii=False, indent=2).encode("utf-8")
-    summary_key = upload_buffer(
-        io.BytesIO(summary_bytes),
-        filename="summary.json",
-        category_display=cat0_name_l1,
-        file_type="summary",
-        content_type="application/json",
-        dt=dt,
-    )
+    if skip_summary:
+        # ✅ Save placeholder locally (to be finalized later)
+        placeholder_path = f"summary_placeholder_{cat0_slug}.json"
+        with open(placeholder_path, "w", encoding="utf-8") as f:
+            json.dump(summary, f, ensure_ascii=False, indent=2)
+        print(f"✅ Summary placeholder saved: {placeholder_path}")
+        print(f"  (Will be finalized with workflow duration later)")
+    else:
+        # ✅ Upload directly (old behavior)
+        summary_bytes = json.dumps(summary, ensure_ascii=False, indent=2).encode("utf-8")
+        summary_key = upload_buffer(
+            io.BytesIO(summary_bytes),
+            filename="summary.json",
+            category_display=cat0_name_l1,
+            file_type="summary",
+            content_type="application/json",
+            dt=dt,
+        )
+
     print(f"Summary -> {summary_key}")
     print(f"  - {summary['total_subcategories']} subcats, {summary['total_listings']} listings")
     print(f"  - requests: {summary['request_metrics'].get('requests_total', 0)} total, {summary['request_metrics'].get('requests_failed', 0)} failed")
@@ -626,8 +632,10 @@ def run(csv_path: str, date_str: str | None = None):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Clean a raw Dubizzle KSA category CSV and push it to R2")
-    parser.add_argument("csv_path", help="Path to the raw scraped CSV for one top-level category")
-    parser.add_argument("--date", default=None, help="YYYY-MM-DD -- the date this data represents (default: yesterday, UTC)")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("csv_path", help="Path to the raw scraped CSV")
+    parser.add_argument("--date", default=None, help="YYYY-MM-DD data date")
+    parser.add_argument("--skip-summary", action="store_true", 
+                        help="Skip uploading summary, save placeholder instead")
     args = parser.parse_args()
-    run(args.csv_path, args.date)
+    run(args.csv_path, args.date, args.skip_summary)

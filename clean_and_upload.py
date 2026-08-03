@@ -623,12 +623,7 @@ def run(csv_path: str, date_str: str | None = None, skip_summary: bool = False):
             dt=dt,
         )
 
-    print(f"Summary -> {summary_key}")
-    print(f"  - {summary['total_subcategories']} subcats, {summary['total_listings']} listings")
-    print(f"  - requests: {summary['request_metrics'].get('requests_total', 0)} total, {summary['request_metrics'].get('requests_failed', 0)} failed")
-    print(f"  - duration: {summary['request_metrics'].get('duration_sec', 0)}s")
-    print(f"  - requests_duration: {summary['request_metrics'].get('requests_duration_sec', 0)}s")
-    print(f"  - RPM: {summary['request_metrics'].get('requests_per_min', 0)}")
+        print(f"Summary -> {summary_key}")
 
 
 if __name__ == "__main__":

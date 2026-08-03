@@ -25,6 +25,9 @@ def merge_details(details_dir: str, output_csv: str):
         return
 
     merged = pd.concat(dfs, ignore_index=True)
+    # Stable per-row key, independent of any car-specific column, used to
+    # join the image-download chunk results back onto the right row later.
+    merged.insert(0, "_row_id", range(len(merged)))
     merged.to_csv(output_csv, index=False, encoding="utf-8-sig")
     print(f"Merged {len(files)} chunk file(s) -> {output_csv} ({len(merged)} rows)")
 

@@ -4,6 +4,7 @@ import io
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -16,6 +17,11 @@ from r2_uploader import upload_buffer
 
 COLUMNS_TO_DROP: list[str] = ['content', 'description', 'content_l1', 'description_l1', 'seo_links',
                               'mapped_model_id', 'mapped_make_id']
+
+# Long-edge cap (px) images are downscaled to before upload, plus the WEBP
+# quality used when re-encoding.
+MAX_IMAGE_DIMENSION = 1280
+WEBP_QUALITY = 65
 
 
 def clean_text(value) -> str:
@@ -79,12 +85,13 @@ def download_and_upload_images(urls: list[str], car_ref: str, dt: datetime) -> l
             r = req.get(img_url, timeout=15)
             if r.status_code == 200:
                 img = Image.open(io.BytesIO(r.content)).convert("RGB")
+                #img.thumbnail((MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION), Image.LANCZOS)
                 buf = io.BytesIO()
-                img.save(buf, format="WEBP", quality=100, method=6)
+                img.save(buf, format="WEBP", quality=WEBP_QUALITY, method=6)
                 buf.seek(0)
 
-                r2_key = upload_buffer(buf, filename=filename, category_display= 'motors', file_type="images",
-                                                        content_type="image/webp", dt=dt)
+                r2_key = upload_buffer(buf, filename=filename, category_display='motors', file_type="images",
+                                        content_type="image/webp", dt=dt)
                 if r2_key:
                     r2_paths.append(r2_key)
                     uploaded += 1
@@ -102,7 +109,6 @@ def download_and_upload_images(urls: list[str], car_ref: str, dt: datetime) -> l
     return r2_paths
 
 
-
 def load_raw(input_path: str) -> pd.DataFrame | None:
     if not os.path.exists(input_path) or os.path.getsize(input_path) == 0:
         return None
@@ -111,29 +117,98 @@ def load_raw(input_path: str) -> pd.DataFrame | None:
     return pd.read_csv(input_path)
 
 
-def clean_and_split(df: pd.DataFrame, dt: datetime) -> dict[str, dict[str, list]]:
-    images_col = find_col(df, "images")
+# ---------------------------------------------------------------------------
+# Mode: images -- run on one chunk of rows, threaded, output just the
+# _row_id -> r2 image paths mapping (no excel/json writing here).
+# ---------------------------------------------------------------------------
+
+def run_images_chunk(input_path: str, start: int, end: int, workers: int, output_csv: str):
+    df = load_raw(input_path)
+    if df is None or df.empty:
+        print(f"{input_path} is missing or empty -- nothing to do.")
+        pd.DataFrame(columns=["_row_id", "images_r2_paths"]).to_csv(output_csv, index=False)
+        return
+
+    if "_row_id" not in df.columns:
+        raise SystemExit("Input file is missing '_row_id' -- run merge_car_details.py first.")
+
+    chunk = df[(df["_row_id"] >= start) & (df["_row_id"] < end)].reset_index(drop=True)
+    if chunk.empty:
+        print(f"No rows in range [{start}:{end}).")
+        pd.DataFrame(columns=["_row_id", "images_r2_paths"]).to_csv(output_csv, index=False)
+        return
+
+    images_col = find_col(chunk, "images")
+    version_col = find_col(chunk, "version_id")
+    dt = datetime.now(timezone.utc)
+
+    n = len(chunk)
+    results = [None] * n
+
+    def worker(pos: int, raw_images, car_ref: str) -> tuple:
+        urls = extract_image_urls(raw_images)
+        r2_paths = download_and_upload_images(urls, car_ref, dt)
+        return pos, r2_paths
+
+    print(f"Downloading images for {n} cars [{start}:{end}) using {workers} workers...")
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {}
+        for pos, row in chunk.iterrows():
+            raw_images = row.get(images_col) if images_col else None
+            row_id = row["_row_id"]
+            car_ref = str(row.get(version_col) or row_id)
+            futures[executor.submit(worker, pos, raw_images, car_ref)] = pos
+
+        completed = 0
+        for future in as_completed(futures):
+            try:
+                pos, r2_paths = future.result(timeout=180)
+                results[pos] = r2_paths
+            except Exception as e:
+                pos = futures[future]
+                print(f"    [ERROR] row {pos} failed: {e}")
+                results[pos] = []
+            completed += 1
+            if completed % 50 == 0 or completed == n:
+                print(f"    Progress: {completed}/{n}")
+
+    out_df = pd.DataFrame({
+        "_row_id": chunk["_row_id"],
+        "images_r2_paths": [json.dumps(r) for r in results],
+    })
+    out_df.to_csv(output_csv, index=False)
+    print(f"Saved: {output_csv} ({len(out_df)} rows)")
+
+
+# ---------------------------------------------------------------------------
+# Mode: finalize -- merge in the already-downloaded image paths (no
+# re-downloading here), split by make/model, write & upload excel/json.
+# ---------------------------------------------------------------------------
+
+def clean_and_split_prebuilt(df: pd.DataFrame) -> dict[str, dict[str, list]]:
     make_col = find_col(df, "make_slug")
     model_col = find_col(df, "model_slug")
-    version_col = find_col(df, "version_id")
 
     if make_col is None or model_col is None:
         raise ValueError("Could not find make_slug / model_slug columns in the data.")
+
+    raw_images_col = find_col(df, "images")
 
     by_make: dict[str, dict[str, list]] = {}
 
     for _, row in df.iterrows():
         record = row.to_dict()
 
-        raw_images = record.pop(images_col, None) if images_col else None
-        urls = extract_image_urls(raw_images)
+        if raw_images_col:
+            record.pop(raw_images_col, None)
+
+        r2_paths = record.pop("images_r2_paths", None)
+        record["images"] = r2_paths if isinstance(r2_paths, list) else []
+        record.pop("_row_id", None)
 
         make_slug = sanitize_name(record.get(make_col) or "unknown")
         model_slug = sanitize_name(record.get(model_col) or "unknown")
-        car_ref = str(record.get(version_col) or "")
-
-        r2_paths = download_and_upload_images(urls, car_ref, dt)
-        record["images"] = r2_paths
 
         by_make.setdefault(make_slug, {}).setdefault(model_slug, []).append(record)
 
@@ -185,7 +260,7 @@ def upload_by_make(by_make: dict[str, dict[str, list]], dt: datetime) -> None:
 
         excel_buf = build_excel(models)
         excel_key = upload_buffer(
-            excel_buf, filename=f"{make_slug}.xlsx", category_display= 'motors', file_type="excel",
+            excel_buf, filename=f"{make_slug}.xlsx", category_display='motors', file_type="excel",
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             dt=dt,
         )
@@ -193,7 +268,7 @@ def upload_by_make(by_make: dict[str, dict[str, list]], dt: datetime) -> None:
 
         json_bytes = json.dumps(models, ensure_ascii=False, indent=2, default=str).encode("utf-8")
         json_key = upload_buffer(
-            io.BytesIO(json_bytes), filename=f"{make_slug}.json", category_display= 'motors', file_type="json",
+            io.BytesIO(json_bytes), filename=f"{make_slug}.json", category_display='motors', file_type="json",
             content_type="application/json", dt=dt,
         )
         print(f"      JSON  -> {json_key}")
@@ -227,7 +302,7 @@ def build_summary(by_make: dict[str, dict[str, list]], dt: datetime) -> dict:
     }
 
 
-def run(input_path: str):
+def run_finalize(input_path: str, images_dir: str):
     dt = datetime.now(timezone.utc)
     df = load_raw(input_path)
 
@@ -240,7 +315,24 @@ def run(input_path: str):
         df = df.drop(columns=existing_cols)
         print(f"  Dropped columns: {existing_cols}")
 
-    by_make = clean_and_split(df, dt)
+    if "_row_id" in df.columns:
+        image_files = glob.glob(os.path.join(images_dir, "images_*.csv"))
+        if image_files:
+            image_parts = [pd.read_csv(f) for f in image_files if os.path.getsize(f) > 0]
+            image_parts = [p for p in image_parts if not p.empty]
+            if image_parts:
+                images_merged = pd.concat(image_parts, ignore_index=True)
+                images_merged["images_r2_paths"] = images_merged["images_r2_paths"].apply(
+                    lambda v: json.loads(v) if pd.notna(v) and v else []
+                )
+                df = df.merge(images_merged, on="_row_id", how="left")
+                print(f"  Merged image paths for {images_merged['images_r2_paths'].apply(bool).sum()}/{len(df)} rows")
+            else:
+                print("  No non-empty image chunk files found -- proceeding without images.")
+        else:
+            print(f"  No image chunk files found under {images_dir} -- proceeding without images.")
+
+    by_make = clean_and_split_prebuilt(df)
     print(f"Split into {len(by_make)} make(s)")
 
     upload_by_make(by_make, dt)
@@ -248,7 +340,7 @@ def run(input_path: str):
     summary = build_summary(by_make, dt)
     summary_bytes = json.dumps(summary, ensure_ascii=False, indent=2).encode("utf-8")
     summary_key = upload_buffer(
-        io.BytesIO(summary_bytes), filename="summary.json", category_display= 'motors', file_type="summary",
+        io.BytesIO(summary_bytes), filename="summary.json", category_display='motors', file_type="summary",
         content_type="application/json", dt=dt,
     )
     print(f"Summary -> {summary_key} ({summary['total_subcategories']} makes, {summary['total_listings']} cars)")
@@ -273,7 +365,7 @@ def run(input_path: str):
 
         failed_bytes = json.dumps(failed_data, ensure_ascii=False, indent=2).encode("utf-8")
         failed_key = upload_buffer(
-            io.BytesIO(failed_bytes), filename="failed.json", category_display= 'motors', file_type="summary",
+            io.BytesIO(failed_bytes), filename="failed.json", category_display='motors', file_type="summary",
             content_type="application/json", dt=dt,
         )
         print(f"Failed -> {failed_key} ({total_failed} failed, {failed_data['error_rate_pct']}% error rate)")
@@ -291,7 +383,7 @@ def run(input_path: str):
         }
         metrics_bytes = json.dumps(metrics, ensure_ascii=False, indent=2).encode("utf-8")
         metrics_key = upload_buffer(
-            io.BytesIO(metrics_bytes), filename="request_metrics.json", category_display= 'motors', file_type="summary",
+            io.BytesIO(metrics_bytes), filename="request_metrics.json", category_display='motors', file_type="summary",
             content_type="application/json", dt=dt,
         )
         print(f"Metrics -> {metrics_key} ({metrics['requests_total']} req, {metrics['requests_per_min']} req/min)")
@@ -301,6 +393,22 @@ def run(input_path: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Clean and upload Dubizzle KSA motors (new cars) data.")
-    parser.add_argument("input_path", help="Path to all_motors_cars.csv or .json produced by main.py")
+    parser.add_argument("input_path", nargs="?", help="Path to all_motors_cars.csv (must include _row_id)")
+    parser.add_argument("--mode", choices=["images", "finalize"], default="finalize")
+    parser.add_argument("--start", type=int, default=0)
+    parser.add_argument("--end", type=int, default=None)
+    parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--output-csv", default=None, help="[images mode] where to write the row_id/paths mapping")
+    parser.add_argument("--images-dir", default="images_parts", help="[finalize mode] folder with images_*.csv chunks")
     args = parser.parse_args()
-    run(args.input_path)
+
+    if not args.input_path:
+        parser.error("input_path is required")
+
+    if args.mode == "images":
+        if args.end is None:
+            parser.error("--end is required for --mode images")
+        output_csv = args.output_csv or f"images_{args.start}_{args.end}.csv"
+        run_images_chunk(args.input_path, args.start, args.end, args.workers, output_csv)
+    else:
+        run_finalize(args.input_path, args.images_dir)

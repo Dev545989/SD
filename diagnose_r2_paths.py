@@ -16,7 +16,7 @@ from datetime import datetime
 
 import boto3
 
-from inspect_r2_schema import r2_base_prefix, excel_prefixes_for_date, list_excel_files
+from monitor.inspect_r2_schema import r2_base_prefix, excel_prefixes_for_date, list_excel_files
 
 
 def build_client():

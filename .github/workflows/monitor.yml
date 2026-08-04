@@ -52,7 +52,7 @@ jobs:
           CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
           CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
-        run: python monitor/build_monitor_data.py --prefix DKSA --build-stats --days 2
+        run: python monitor/build_monitor_data.py --prefix DKSA --build-stats --days 3
 
       # ✅ خطوة جديدة: طباعة محتوى monitor_stats.yml
       - name: Print monitor_stats.yml
@@ -123,5 +123,6 @@ jobs:
           CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
         run: |
           DATE_PREFIX=$(date -d 'yesterday' +'%Y-%m-%d')
+          DATE_PREFIX="2026-08-02"
           echo "Generating report for: $DATE_PREFIX"
           python monitor/build_monitor_data.py --prefix DKSA --report-date "$DATE_PREFIX"

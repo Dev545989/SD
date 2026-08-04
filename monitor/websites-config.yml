@@ -92,16 +92,6 @@ pipeline_chain:
   - batch: "DKSA"
     trigger: "cron: '0 0 * * *'"
     triggers_next: null
-pipeline_chain:
-  - batch: "DKSA"
-    trigger: "cron: '0 0 * * *'"
-    triggers_next: "DKSA Motors"
-  - batch: "DKSA Motors"
-    trigger: "on_completion: DKSA"
-    triggers_next: "DKSA Monitor"
-  - batch: "DKSA Monitor"
-    trigger: "workflow_dispatch (triggered by DKSA Motors)"
-    triggers_next: null
 
 # ============================================================
 # EXCEL SCHEMA — Per-scraper .xlsx output validation

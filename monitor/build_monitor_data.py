@@ -205,7 +205,7 @@ def list_scraper_excel_files(client, bucket: str, r2_base: str, category: Option
                     f["date"] = dt.strftime("%Y-%m-%d")
                     all_files.append(f)
         except Exception as exc:
-            log.debug(f"Error listing files in {prefix}: {exc}")
+            log.warning(f"Error listing files in {prefix}: {type(exc).__name__}: {exc}")
     
     return all_files
 

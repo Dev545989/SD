@@ -1,23 +1,22 @@
 """
-diagnose_r2_paths.py
-=====================
-Quick standalone check: what actually exists under DKSA/year=.../month=.../day=.../
-in R2 right now, for a given date (or a few recent dates).
-
-Run it directly in the GitHub Actions runner (or locally with the same env
-vars) to compare the REAL category folder names against what
-websites-config.yml expects.
+diagnose_excel_files.py
+========================
+Lists the REAL object keys (not just folder names) under one scraper's
+excel/ folder for a given date, and re-runs the exact same code path
+build_monitor_data.py uses (r2_base_prefix -> excel_prefixes_for_date ->
+list_excel_files) so we can see exactly what it finds (or doesn't).
 
 Usage:
-    python diagnose_r2_paths.py --prefix DKSA --date 2026-08-02
-    python diagnose_r2_paths.py --prefix DKSA --days 5   # scans last 5 days
+    python diagnose_excel_files.py --prefix DKSA --category Vehicles --date 2026-08-02
 """
 
 import argparse
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import boto3
+
+from inspect_r2_schema import r2_base_prefix, excel_prefixes_for_date, list_excel_files
 
 
 def build_client():
@@ -39,49 +38,41 @@ def build_client():
     return client, bucket_name
 
 
-def list_immediate_children(client, bucket, prefix):
-    """List the folder names directly under `prefix` (one level deep)."""
-    paginator = client.get_paginator("list_objects_v2")
-    children = set()
-    for page in paginator.paginate(Bucket=bucket, Prefix=prefix, Delimiter="/"):
-        for cp in page.get("CommonPrefixes", []):
-            # cp["Prefix"] looks like "DKSA/year=2026/month=08/day=02/Vehicles/"
-            child = cp["Prefix"][len(prefix):].rstrip("/")
-            children.add(child)
-    return sorted(children)
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--prefix", default="DKSA")
-    parser.add_argument("--date", help="Single date YYYY-MM-DD to check")
-    parser.add_argument("--days", type=int, default=1, help="How many recent days to scan if --date not given")
+    parser.add_argument("--category", required=True, help="e.g. Vehicles")
+    parser.add_argument("--date", required=True, help="YYYY-MM-DD")
     args = parser.parse_args()
 
     client, bucket = build_client()
+    dt = datetime.strptime(args.date, "%Y-%m-%d")
 
-    if args.date:
-        dates = [datetime.strptime(args.date, "%Y-%m-%d")]
-    else:
-        today = datetime.utcnow()
-        dates = [today - timedelta(days=i) for i in range(args.days)]
+    # 1) Raw listing — exactly what's really there, no filtering at all.
+    raw_prefix = f"{args.prefix}/year={dt.year}/month={dt.month:02d}/day={dt.day:02d}/{args.category}/excel/"
+    print(f"RAW listing under: {raw_prefix}")
+    print("-" * 70)
+    paginator = client.get_paginator("list_objects_v2")
+    count = 0
+    for page in paginator.paginate(Bucket=bucket, Prefix=raw_prefix):
+        for obj in page.get("Contents", []):
+            print(f"   {obj['Key']}   ({obj['Size']} bytes)")
+            count += 1
+    print(f"-> {count} raw object(s) found.\n")
 
-    for dt in dates:
-        date_prefix = f"{args.prefix}/year={dt.year}/month={dt.month:02d}/day={dt.day:02d}/"
-        print("=" * 70)
-        print(f"📅 {dt.strftime('%Y-%m-%d')}  →  {date_prefix}")
-        print("=" * 70)
+    # 2) Re-run the EXACT code path build_monitor_data.py uses.
+    r2_path_raw = "{r2_bucket}/" + f"{args.prefix}/{args.category}"
+    base, category = r2_base_prefix(r2_path_raw)
+    print(f"r2_base_prefix('{r2_path_raw}') -> base={base!r}, category={category!r}")
 
-        categories = list_immediate_children(client, bucket, date_prefix)
-        if not categories:
-            print("   ❌ NOTHING found under this date prefix at all.")
-            continue
+    prefixes = excel_prefixes_for_date(base, category, dt)
+    print(f"excel_prefixes_for_date(...) -> {prefixes}")
 
-        print(f"   Found {len(categories)} folder(s) directly under this date:")
-        for cat in categories:
-            cat_prefix = f"{date_prefix}{cat}/"
-            sub = list_immediate_children(client, bucket, cat_prefix)
-            print(f"   📁 '{cat}'  → subfolders: {sub}")
+    for p in prefixes:
+        files = list_excel_files(client, bucket, p)
+        print(f"list_excel_files(..., {p!r}) -> {len(files)} file(s)")
+        for f in files[:5]:
+            print(f"   {f}")
 
 
 if __name__ == "__main__":

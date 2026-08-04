@@ -143,8 +143,15 @@ def r2_base_prefix(r2_path_raw: str) -> str:
     return path.strip("/")
 
 def partition_date_for_data_date(dt: datetime) -> datetime:
-    """R2 folder uses save_date = listing date + 1 day (yesterday's listings → today's partition)."""
-    return partition_date_for_listing(dt)
+    """
+    Return the partition date for the given data date.
+    
+    For DKSA, the data is stored under:
+    DKSA/year=YYYY/month=MM/day=DD/{Category}/excel/
+    
+    So we use the data date directly.
+    """
+    return dt
 
 
 def excel_prefixes_for_date(base: str, dt: datetime) -> List[str]:

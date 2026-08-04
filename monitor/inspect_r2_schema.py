@@ -126,21 +126,28 @@ def accumulate_stats(
         new_cols = [c for c in sheet["columns"] if c not in se["columns"]]
         se["columns"].extend(new_cols)
 
-def r2_base_prefix(r2_path_raw: str) -> str:
+def r2_base_prefix(r2_path_raw: str) -> Tuple[str, Optional[str]]:
     """
-    Convert config r2_path like '{r2_bucket}/DKSA/Vehicles' to actual in-bucket prefix.
-    
-    For DKSA, the path is: DKSA (not DKSA/Vehicles)
-    Because the category is a subfolder under the date partition.
+    Convert config r2_path like '{r2_bucket}/DKSA/Vehicles' into (base, category).
+
+    The category is a subfolder that sits UNDER the date partition
+    (DKSA/year=.../month=.../day=.../Vehicles/excel/...), so callers need
+    both pieces to build a correct, scraper-specific prefix.
+
+        '{r2_bucket}/DKSA/Vehicles' -> ('DKSA', 'Vehicles')
+        '{r2_bucket}/DKSA'          -> ('DKSA', None)
     """
     path = r2_path_raw.strip()
     if path.startswith("{"):
         path = path.split("/", 1)[1] if "/" in path else path
-    
+
     parts = path.strip("/").split("/")
-    if len(parts) >= 1:
-        return parts[0]  # "DKSA"
-    return path.strip("/")
+    if not parts or not parts[0]:
+        return path.strip("/"), None
+
+    base = parts[0]
+    category = "/".join(parts[1:]) if len(parts) > 1 else None
+    return base, category
 
 def partition_date_for_data_date(dt: datetime) -> datetime:
     """
@@ -154,29 +161,21 @@ def partition_date_for_data_date(dt: datetime) -> datetime:
     return dt
 
 
-def excel_prefixes_for_date(base: str, dt: datetime) -> List[str]:
+def excel_prefixes_for_date(base: str, category: Optional[str], dt: datetime) -> List[str]:
     """
-    Build R2 date-partition prefixes for Excel discovery.
-    
+    Build the R2 date-partition prefix for Excel discovery, scoped to one
+    scraper's own category folder.
+
     Actual structure:
     DKSA/year=2026/month=08/day=02/Vehicles/excel/Audi.xlsx
     """
-    seen: set = set()
-    prefixes: List[str] = []
-    
     base = base.strip("/")
     date_part = f"year={dt.year}/month={dt.month:02d}/day={dt.day:02d}"
-    
-    prefix = f"{base}/{date_part}/"
-    if prefix not in seen:
-        seen.add(prefix)
-        prefixes.append(prefix)
-    
-    prefix2 = f"{base}/{date_part}/excel/"
-    if prefix2 not in seen:
-        seen.add(prefix2)
-        prefixes.append(prefix2)
 
-    print(prefixes)
-    
-    return prefixes
+    if category:
+        prefix = f"{base}/{date_part}/{category.strip('/')}/excel/"
+    else:
+        # No category known — fall back to the broad date folder (legacy behavior).
+        prefix = f"{base}/{date_part}/"
+
+    return [prefix]

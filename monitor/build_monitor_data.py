@@ -189,15 +189,15 @@ LOCAL_CONFIG_PATH = Path(__file__).parent / "websites-config.yml"
 
 # ── Helper Functions ──────────────────────────────────────────────────────
 
-def list_scraper_excel_files(client, bucket: str, r2_base: str, date_str: str) -> List[Dict]:
-    """List all Excel files for a scraper on a specific date."""
+def list_scraper_excel_files(client, bucket: str, r2_base: str, category: Optional[str], date_str: str) -> List[Dict]:
+    """List all Excel files for a scraper's own category on a specific date."""
     dt = datetime.strptime(date_str, "%Y-%m-%d")
     part_dt = partition_date_for_data_date(dt)
     
     all_files = []
     seen_keys = set()
     
-    for prefix in excel_prefixes_for_date(r2_base, part_dt):
+    for prefix in excel_prefixes_for_date(r2_base, category, part_dt):
         try:
             for f in list_excel_files(client, bucket, prefix):
                 if f["key"] not in seen_keys:
@@ -280,7 +280,7 @@ def get_stats_for_scraper(
     existing_stats: Dict
 ) -> Dict:
     """Build stats for a single scraper by inspecting its Excel files."""
-    r2_base = r2_base_prefix(scraper_config.get("r2_path", ""))
+    r2_base, category = r2_base_prefix(scraper_config.get("r2_path", ""))
     if not r2_base:
         log.warning(f"  {scraper_name}: no r2_path in config — skipping")
         return {}
@@ -288,7 +288,7 @@ def get_stats_for_scraper(
     stats = {}
     
     for date_str in dates_to_check:
-        excel_files = list_scraper_excel_files(client, bucket, r2_base, date_str)
+        excel_files = list_scraper_excel_files(client, bucket, r2_base, category, date_str)
         
         if not excel_files:
             continue
@@ -327,14 +327,14 @@ def get_categories_ads(
     
     for scraper_config in scraper_configs:
         scraper_name = scraper_config.get("name")
-        r2_base = r2_base_prefix(scraper_config.get("r2_path", ""))
+        r2_base, category = r2_base_prefix(scraper_config.get("r2_path", ""))
         if not r2_base:
             continue
         
         part_dt = partition_date_for_data_date(target_date)
         
         json_total, json_key, json_breakdown = load_json_summaries(
-            client, bucket, r2_base, part_dt
+            client, bucket, r2_base, part_dt, category=category
         )
         
         if json_total is not None and json_breakdown:
@@ -351,7 +351,7 @@ def get_categories_ads(
             all_xlsx = []
             seen_keys = set()
             
-            for prefix in excel_prefixes_for_date(r2_base, part_dt):
+            for prefix in excel_prefixes_for_date(r2_base, category, part_dt):
                 try:
                     for f in list_excel_files(client, bucket, prefix):
                         if f["key"] not in seen_keys:
@@ -409,7 +409,7 @@ def collect_request_metrics(
     
     for scraper_config in scraper_configs:
         scraper_name = scraper_config.get("name")
-        r2_base = r2_base_prefix(scraper_config.get("r2_path", ""))
+        r2_base, category = r2_base_prefix(scraper_config.get("r2_path", ""))
         if not r2_base:
             continue
         
@@ -417,7 +417,7 @@ def collect_request_metrics(
         
         # Get summary.json from R2
         best_total, best_key, best_breakdown = load_json_summaries(
-            client, bucket, r2_base, part_dt
+            client, bucket, r2_base, part_dt, category=category
         )
         
         if best_key:

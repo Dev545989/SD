@@ -57,10 +57,11 @@ def _json_prefixes_for_date(base: str, dt: datetime) -> List[str]:
     prefixes: List[str] = []
     for month in (f"{dt.month:02d}", str(dt.month)):
         for day in (f"{dt.day:02d}", str(dt.day)):
-            prefix = f"{base}/year={dt.year}/month={month}/day={day}/json/"
-            if prefix not in seen:
-                seen.add(prefix)
-                prefixes.append(prefix)
+            for folder in ["json", "summary"]:
+                prefix = f"{base}/year={dt.year}/month={month}/day={day}/{folder}/"
+                if prefix not in seen:
+                    seen.add(prefix)
+                    prefixes.append(prefix)
     return prefixes
 
 def _first_non_empty_str(row: Dict[str, Any], keys: Tuple[str, ...]) -> str:

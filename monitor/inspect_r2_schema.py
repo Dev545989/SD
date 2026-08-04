@@ -169,5 +169,7 @@ def excel_prefixes_for_date(base: str, dt: datetime) -> List[str]:
     if prefix2 not in seen:
         seen.add(prefix2)
         prefixes.append(prefix2)
+
+    print(prefixes)
     
     return prefixes

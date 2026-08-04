@@ -59,99 +59,229 @@ jobs:
           import os
           from datetime import datetime
 
-          def print_all_r2_paths(client, bucket, base_prefix="DKSA", date_str=None):
-              """Print all R2 paths for debugging."""
-              if date_str:
-                  year, month, day = date_str.split("-")
-                  prefix = f"{base_prefix}/year={year}/month={month}/day={day}/"
-              else:
-                  prefix = f"{base_prefix}/"
-              
-              print("=" * 70)
-              print(f"📂 SCANNING R2 PATHS: {prefix}")
-              print("=" * 70)
-              
-              try:
-                  paginator = client.get_paginator("list_objects_v2")
-                  folders = set()
-                  all_keys = []
-                  
-                  for page in paginator.paginate(Bucket=bucket, Prefix=prefix, Delimiter='/'):
-                      for common_prefix in page.get('CommonPrefixes', []):
-                          folders.add(common_prefix['Prefix'])
-                      for obj in page.get('Contents', []):
-                          key = obj['Key']
-                          if not key.endswith('/'):
-                              all_keys.append({'key': key, 'size': obj['Size']})
-                  
-                  print(f"\n📁 FOLDERS ({len(folders)}):")
-                  for folder in sorted(folders):
-                      print(f"   📂 {folder}")
-                  
-                  # Also show files at root level
-                  excel_files = [k for k in all_keys if k['key'].endswith('.xlsx')]
-                  json_files = [k for k in all_keys if k['key'].endswith('.json')]
-                  
-                  print(f"\n📄 FILES at root level:")
-                  print(f"   Excel files: {len(excel_files)}")
-                  print(f"   JSON files: {len(json_files)}")
-                  
-                  # Show sample of Excel files
-                  if excel_files:
-                      print(f"\n   Sample Excel files:")
-                      for item in sorted(excel_files, key=lambda x: x['key'])[:10]:
-                          size_kb = round(item['size'] / 1024, 1)
-                          print(f"      📄 {item['key']} ({size_kb} KB)")
-                      if len(excel_files) > 10:
-                          print(f"      ... and {len(excel_files) - 10} more")
-                  
-                  # Show sample of JSON files
-                  if json_files:
-                      print(f"\n   Sample JSON files:")
-                      for item in sorted(json_files, key=lambda x: x['key'])[:10]:
-                          size_kb = round(item['size'] / 1024, 1)
-                          print(f"      📄 {item['key']} ({size_kb} KB)")
-                      if len(json_files) > 10:
-                          print(f"      ... and {len(json_files) - 10} more")
-                  
-                  # Deep scan for Excel files
-                  print("\n" + "=" * 70)
-                  print("🔍 DEEP SCAN (Excel files only):")
-                  print("=" * 70)
-                  
-                  # Scan recursively for Excel files
-                  def scan_excel(prefix_inner, depth=0, max_depth=5):
-                      if depth > max_depth:
-                          return
-                      indent = "  " * depth
-                      try:
-                          paginator2 = client.get_paginator("list_objects_v2")
-                          folders = []
-                          excel_found = []
-                          for page in paginator2.paginate(Bucket=bucket, Prefix=prefix_inner, Delimiter='/'):
-                              for common_prefix in page.get('CommonPrefixes', []):
-                                  folders.append(common_prefix['Prefix'])
-                              for obj in page.get('Contents', []):
-                                  key = obj['Key']
-                                  if key.endswith('.xlsx') and not key.endswith('/'):
-                                      excel_found.append(key)
-                          
-                          if excel_found:
-                              print(f"{indent}📂 {prefix_inner} → {len(excel_found)} Excel files")
-                              for f in excel_found[:5]:
-                                  print(f"{indent}   📄 {f}")
-                              if len(excel_found) > 5:
-                                  print(f"{indent}   ... and {len(excel_found) - 5} more")
-                          
-                          for folder in folders[:10]:
-                              scan_excel(folder, depth + 1, max_depth)
-                      except Exception as e:
-                          pass
-                  
-                  scan_excel(prefix)
-                  
-              except Exception as e:
-                  print(f"❌ Error scanning R2: {e}")
+          def print_all_r2_paths(client, bucket: str, base_prefix: str = "DKSA", date_str: str = None):
+            """
+            Print all R2 paths for Excel, JSON, and Summary files.
+            
+            Args:
+                client: boto3 S3 client
+                bucket: R2 bucket name
+                base_prefix: Base prefix to scan (e.g., "DKSA")
+                date_str: Specific date to scan (e.g., "2026-08-02"), None for all
+            """
+            if date_str:
+                year, month, day = date_str.split("-")
+                prefix = f"{base_prefix}/year={year}/month={month}/day={day}/"
+            else:
+                prefix = f"{base_prefix}/"
+            
+            print("=" * 80)
+            print(f"📂 SCANNING R2 PATHS: {prefix}")
+            print("=" * 80)
+            
+            # Collect all keys
+            all_keys = []
+            try:
+                paginator = client.get_paginator("list_objects_v2")
+                for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+                    for obj in page.get('Contents', []):
+                        key = obj['Key']
+                        if not key.endswith('/'):
+                            all_keys.append({
+                                'key': key,
+                                'size': obj['Size'],
+                                'last_modified': obj['LastModified']
+                            })
+            except Exception as e:
+                print(f"❌ Error scanning R2: {e}")
+                return
+            
+            # Separate by type
+            excel_files = [k for k in all_keys if k['key'].endswith('.xlsx')]
+            json_files = [k for k in all_keys if k['key'].endswith('.json')]
+            other_files = [k for k in all_keys if not k['key'].endswith('.xlsx') and not k['key'].endswith('.json')]
+            
+            print(f"\n📊 SUMMARY:")
+            print(f"   Total files: {len(all_keys)}")
+            print(f"   Excel files (.xlsx): {len(excel_files)}")
+            print(f"   JSON files (.json): {len(json_files)}")
+            print(f"   Other files: {len(other_files)}")
+            
+            # ============================================================
+            # 1. EXCEL FILES
+            # ============================================================
+            print("\n" + "=" * 80)
+            print(f"📊 EXCEL FILES ({len(excel_files)})")
+            print("=" * 80)
+            
+            # Group by folder
+            excel_by_folder = {}
+            for item in excel_files:
+                key = item['key']
+                # Extract folder path (everything before the filename)
+                folder = key.rsplit('/', 1)[0] + '/'
+                if folder not in excel_by_folder:
+                    excel_by_folder[folder] = []
+                excel_by_folder[folder].append(item)
+            
+            for folder in sorted(excel_by_folder.keys()):
+                files = excel_by_folder[folder]
+                print(f"\n📁 {folder}")
+                print(f"   Files: {len(files)}")
+                for item in sorted(files, key=lambda x: x['key'])[:10]:
+                    size_kb = round(item['size'] / 1024, 1)
+                    filename = item['key'].rsplit('/', 1)[-1]
+                    print(f"      📄 {filename} ({size_kb} KB)")
+                if len(files) > 10:
+                    print(f"      ... and {len(files) - 10} more files")
+            
+            # ============================================================
+            # 2. JSON FILES
+            # ============================================================
+            print("\n" + "=" * 80)
+            print(f"📊 JSON FILES ({len(json_files)})")
+            print("=" * 80)
+            
+            # Group by folder
+            json_by_folder = {}
+            for item in json_files:
+                key = item['key']
+                folder = key.rsplit('/', 1)[0] + '/'
+                if folder not in json_by_folder:
+                    json_by_folder[folder] = []
+                json_by_folder[folder].append(item)
+            
+            for folder in sorted(json_by_folder.keys()):
+                files = json_by_folder[folder]
+                print(f"\n📁 {folder}")
+                print(f"   Files: {len(files)}")
+                for item in sorted(files, key=lambda x: x['key'])[:10]:
+                    size_kb = round(item['size'] / 1024, 1)
+                    filename = item['key'].rsplit('/', 1)[-1]
+                    print(f"      📄 {filename} ({size_kb} KB)")
+                if len(files) > 10:
+                    print(f"      ... and {len(files) - 10} more files")
+            
+            # ============================================================
+            # 3. SUMMARY FILES (summary.json)
+            # ============================================================
+            print("\n" + "=" * 80)
+            print("📊 SUMMARY FILES (summary.json)")
+            print("=" * 80)
+            
+            summary_files = [k for k in json_files if k['key'].endswith('summary.json')]
+            
+            if summary_files:
+                for item in sorted(summary_files, key=lambda x: x['key']):
+                    key = item['key']
+                    folder = key.rsplit('/', 2)[0] if '/summary/' in key else key.rsplit('/', 1)[0]
+                    size_kb = round(item['size'] / 1024, 1)
+                    print(f"   📄 {key} ({size_kb} KB)")
+                    print(f"      📁 Folder: {folder}")
+            else:
+                print("   ❌ No summary.json files found!")
+            
+            # ============================================================
+            # 4. FOLDER STRUCTURE (Tree view)
+            # ============================================================
+            print("\n" + "=" * 80)
+            print("📂 FOLDER STRUCTURE")
+            print("=" * 80)
+            
+            # Build folder tree
+            folders = set()
+            for item in all_keys:
+                key = item['key']
+                parts = key.split('/')
+                for i in range(1, len(parts)):
+                    folder_path = '/'.join(parts[:i]) + '/'
+                    folders.add(folder_path)
+            
+            # Print tree
+            def print_tree(folder_list, prefix="", depth=0, max_depth=4):
+                if depth > max_depth:
+                    return
+                # Find children at this level
+                children = {}
+                for f in folder_list:
+                    if f.startswith(prefix) and f != prefix:
+                        rest = f[len(prefix):]
+                        if '/' in rest:
+                            child = rest.split('/')[0] + '/'
+                            if child not in children:
+                                children[child] = []
+                            children[child].append(f)
+                        else:
+                            # This is a file, skip for tree
+                            pass
+                # Print children
+                for child in sorted(children.keys()):
+                    print(f"{'  ' * depth}📁 {child}")
+                    # Check if this folder has Excel files
+                    has_excel = any(f for f in all_keys if f['key'].startswith(prefix + child) and f['key'].endswith('.xlsx'))
+                    if has_excel:
+                        excel_count = len([f for f in all_keys if f['key'].startswith(prefix + child) and f['key'].endswith('.xlsx')])
+                        print(f"{'  ' * (depth + 1)}📊 {excel_count} Excel files")
+                    
+                    has_json = any(f for f in all_keys if f['key'].startswith(prefix + child) and f['key'].endswith('.json'))
+                    if has_json:
+                        json_count = len([f for f in all_keys if f['key'].startswith(prefix + child) and f['key'].endswith('.json')])
+                        print(f"{'  ' * (depth + 1)}📄 {json_count} JSON files")
+                    
+                    # Recursively print subfolders
+                    print_tree([f for f in folder_list if f.startswith(prefix + child)], prefix + child, depth + 1, max_depth)
+            
+            # Build list of folders (only show relevant ones)
+            relevant_folders = [f for f in folders if any(k['key'].startswith(f) for k in all_keys)]
+            
+            # Show only top level folders (depth 1)
+            top_folders = set()
+            for f in relevant_folders:
+                parts = f.split('/')
+                if len(parts) >= 2:
+                    top = '/'.join(parts[:2]) + '/'
+                    top_folders.add(top)
+            
+            print("\nTop-level folders:")
+            for folder in sorted(top_folders):
+                # Count files in this folder
+                excel_count = len([k for k in excel_files if k['key'].startswith(folder)])
+                json_count = len([k for k in json_files if k['key'].startswith(folder)])
+                print(f"   📁 {folder} → {excel_count} Excel, {json_count} JSON")
+                
+                # Show subfolders
+                subfolders = [f for f in relevant_folders if f.startswith(folder) and f != folder]
+                for sf in sorted(subfolders)[:5]:
+                    sub_excel = len([k for k in excel_files if k['key'].startswith(sf)])
+                    sub_json = len([k for k in json_files if k['key'].startswith(sf)])
+                    if sub_excel > 0 or sub_json > 0:
+                        print(f"      📁 {sf} → {sub_excel} Excel, {sub_json} JSON")
+                if len(subfolders) > 5:
+                    print(f"      ... and {len(subfolders) - 5} more folders")
+            
+            # ============================================================
+            # 5. SAMPLE PATHS
+            # ============================================================
+            print("\n" + "=" * 80)
+            print("📋 SAMPLE PATHS (First 5 of each type)")
+            print("=" * 80)
+            
+            print("\n📊 Excel samples:")
+            for item in sorted(excel_files, key=lambda x: x['key'])[:5]:
+                print(f"   {item['key']}")
+            
+            print("\n📄 JSON samples (non-summary):")
+            non_summary_json = [k for k in json_files if not k['key'].endswith('summary.json')]
+            for item in sorted(non_summary_json, key=lambda x: x['key'])[:5]:
+                print(f"   {item['key']}")
+            
+            print("\n📋 Summary.json samples:")
+            for item in sorted(summary_files, key=lambda x: x['key'])[:5]:
+                print(f"   {item['key']}")
+            
+            print("\n" + "=" * 80)
+            print("✅ SCAN COMPLETE")
+            print("=" * 80)
 
           # Run the function
           client = boto3.client('s3',

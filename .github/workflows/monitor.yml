@@ -316,103 +316,103 @@ jobs:
           CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
           CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
-        run: python monitor/diagnose_r2_paths.py --prefix DKSA --days 5
+        run: python monitor/diagnose_r2_paths.py --prefix qatarsale --days 5
 
-      - name: Diagnose excel files
-        env:
-          CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
-          CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
-          CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
-          CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
-        run: python monitor/diagnose_excel_files.py --prefix DKSA --category Vehicles --date 2026-08-02
+      # - name: Diagnose excel files
+      #   env:
+      #     CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+      #     CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+      #     CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
+      #     CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
+      #   run: python monitor/diagnose_excel_files.py --prefix DKSA --category Vehicles --date 2026-08-02
       
       
-      - name: Build stats (test mode)
-        env:
-          CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
-          CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
-          CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
-          CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
-        run: python monitor/build_monitor_data.py --prefix DKSA --build-stats --days 3 --no-save --output-stats test_stats.yml
+      # - name: Build stats (test mode)
+      #   env:
+      #     CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+      #     CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+      #     CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
+      #     CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
+      #   run: python monitor/build_monitor_data.py --prefix DKSA --build-stats --days 3 --no-save --output-stats test_stats.yml
 
-      - name: Show test stats
-        run: cat test_stats.yml
+      # - name: Show test stats
+      #   run: cat test_stats.yml
 
 
-      - name: Upload monitor_stats.yml
-        env:
-          CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
-          CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
-          CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
-          CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
-        run: python monitor/build_monitor_data.py --prefix DKSA --build-stats --days 3
+      # - name: Upload monitor_stats.yml
+      #   env:
+      #     CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+      #     CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+      #     CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
+      #     CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
+      #   run: python monitor/build_monitor_data.py --prefix DKSA --build-stats --days 3
 
-      - name: Print monitor_stats.yml
-        env:
-          CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
-          CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
-          CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
-          CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
-        run: |
-          python << 'EOF'
-          import boto3
-          import os
-          import yaml
+      # - name: Print monitor_stats.yml
+      #   env:
+      #     CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+      #     CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+      #     CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
+      #     CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
+      #   run: |
+      #     python << 'EOF'
+      #     import boto3
+      #     import os
+      #     import yaml
 
-          client = boto3.client('s3',
-              endpoint_url=os.environ['CF_R2_ENDPOINT_URL'],
-              aws_access_key_id=os.environ['CF_R2_ACCESS_KEY_ID'],
-              aws_secret_access_key=os.environ['CF_R2_SECRET_ACCESS_KEY'],
-              region_name='auto'
-          )
-          bucket = os.environ['CF_R2_BUCKET_NAME']
-          key = "DKSA/monitor/monitor_stats.yml"
+      #     client = boto3.client('s3',
+      #         endpoint_url=os.environ['CF_R2_ENDPOINT_URL'],
+      #         aws_access_key_id=os.environ['CF_R2_ACCESS_KEY_ID'],
+      #         aws_secret_access_key=os.environ['CF_R2_SECRET_ACCESS_KEY'],
+      #         region_name='auto'
+      #     )
+      #     bucket = os.environ['CF_R2_BUCKET_NAME']
+      #     key = "DKSA/monitor/monitor_stats.yml"
 
-          try:
-              resp = client.get_object(Bucket=bucket, Key=key)
-              content = resp['Body'].read().decode('utf-8')
-              data = yaml.safe_load(content)
+      #     try:
+      #         resp = client.get_object(Bucket=bucket, Key=key)
+      #         content = resp['Body'].read().decode('utf-8')
+      #         data = yaml.safe_load(content)
               
-              print("=" * 60)
-              print("📊 MONITOR_STATS.YML")
-              print("=" * 60)
-              print(f"Total scrapers: {len(data)}")
-              print("-" * 60)
+      #         print("=" * 60)
+      #         print("📊 MONITOR_STATS.YML")
+      #         print("=" * 60)
+      #         print(f"Total scrapers: {len(data)}")
+      #         print("-" * 60)
               
-              for scraper_name, stats in data.items():
-                  observed_dates = stats.get('observed_dates', [])
-                  sheets = stats.get('sheets', {})
-                  file_size = stats.get('file_size_kb', {})
+      #         for scraper_name, stats in data.items():
+      #             observed_dates = stats.get('observed_dates', [])
+      #             sheets = stats.get('sheets', {})
+      #             file_size = stats.get('file_size_kb', {})
                   
-                  print(f"\n🔹 {scraper_name}")
-                  print(f"   Observed dates: {len(observed_dates)} days")
-                  if observed_dates:
-                      print(f"   First: {observed_dates[0]}")
-                      print(f"   Last:  {observed_dates[-1]}")
-                  print(f"   Sheets: {len(sheets)}")
-                  if file_size:
-                      print(f"   File size (KB): min={file_size.get('min')}, max={file_size.get('max')}, last={file_size.get('last')}")
+      #             print(f"\n🔹 {scraper_name}")
+      #             print(f"   Observed dates: {len(observed_dates)} days")
+      #             if observed_dates:
+      #                 print(f"   First: {observed_dates[0]}")
+      #                 print(f"   Last:  {observed_dates[-1]}")
+      #             print(f"   Sheets: {len(sheets)}")
+      #             if file_size:
+      #                 print(f"   File size (KB): min={file_size.get('min')}, max={file_size.get('max')}, last={file_size.get('last')}")
                   
-                  for sheet_name, sheet_data in list(sheets.items())[:3]:
-                      row_count = sheet_data.get('row_count', {})
-                      cols = sheet_data.get('columns', [])
-                      print(f"      - {sheet_name}: {row_count.get('last', 0)} rows, {len(cols)} columns")
-                  if len(sheets) > 3:
-                      print(f"      ... and {len(sheets) - 3} more sheets")
+      #             for sheet_name, sheet_data in list(sheets.items())[:3]:
+      #                 row_count = sheet_data.get('row_count', {})
+      #                 cols = sheet_data.get('columns', [])
+      #                 print(f"      - {sheet_name}: {row_count.get('last', 0)} rows, {len(cols)} columns")
+      #             if len(sheets) > 3:
+      #                 print(f"      ... and {len(sheets) - 3} more sheets")
               
-              print("\n" + "=" * 60)
+      #         print("\n" + "=" * 60)
               
-          except Exception as e:
-              print(f"❌ Error reading monitor_stats.yml: {e}")
-          EOF
+      #     except Exception as e:
+      #         print(f"❌ Error reading monitor_stats.yml: {e}")
+      #     EOF
 
-      - name: Upload report.json
-        env:
-          CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
-          CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
-          CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
-          CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
-        run: |
-          DATE_PREFIX="2026-08-02"
-          echo "Generating report for: $DATE_PREFIX"
-          python monitor/build_monitor_data.py --prefix DKSA --report-date "$DATE_PREFIX"
+      # - name: Upload report.json
+      #   env:
+      #     CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+      #     CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+      #     CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
+      #     CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
+      #   run: |
+      #     DATE_PREFIX="2026-08-02"
+      #     echo "Generating report for: $DATE_PREFIX"
+      #     python monitor/build_monitor_data.py --prefix DKSA --report-date "$DATE_PREFIX"

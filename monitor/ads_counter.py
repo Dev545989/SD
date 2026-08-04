@@ -53,15 +53,28 @@ log = logging.getLogger("monitor")
 
 
 def _json_prefixes_for_date(base: str, dt: datetime) -> List[str]:
+    """
+    Build R2 date-partition prefixes for JSON discovery.
+    
+    Actual structure:
+    DKSA/year=2026/month=08/day=02/Vehicles/summary/summary.json
+    """
     seen: set = set()
     prefixes: List[str] = []
-    for month in (f"{dt.month:02d}", str(dt.month)):
-        for day in (f"{dt.day:02d}", str(dt.day)):
-            for folder in ["json", "summary"]:
-                prefix = f"{base}/year={dt.year}/month={month}/day={day}/{folder}/"
-                if prefix not in seen:
-                    seen.add(prefix)
-                    prefixes.append(prefix)
+    
+    base = base.strip("/")
+    date_part = f"year={dt.year}/month={dt.month:02d}/day={dt.day:02d}"
+    
+    prefix = f"{base}/{date_part}/"
+    if prefix not in seen:
+        seen.add(prefix)
+        prefixes.append(prefix)
+    
+    prefix2 = f"{base}/{date_part}/summary/"
+    if prefix2 not in seen:
+        seen.add(prefix2)
+        prefixes.append(prefix2)
+    
     return prefixes
 
 def _first_non_empty_str(row: Dict[str, Any], keys: Tuple[str, ...]) -> str:

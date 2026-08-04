@@ -16,46 +16,38 @@ jobs:
       - name: Install dependencies
         run: pip install boto3 openpyxl pyyaml python-dotenv pandas
 
-      - name: Upload site.yml
-        env:
-          CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
-          CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
-          CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
-          CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
-        run: |
-            python << 'EOF'
-            import boto3
-            import os
-            client = boto3.client('s3',
-                        endpoint_url=os.environ['CF_R2_ENDPOINT_URL'],
-                        aws_access_key_id=os.environ['CF_R2_ACCESS_KEY_ID'],
-                        aws_secret_access_key=os.environ['CF_R2_SECRET_ACCESS_KEY'],
-                        region_name='auto'
-                    )
-            local_file = "monitor/site.yml" 
-            object_key = "monitor-sites/DKSA/site.yml"
-            client.upload_file(local_file, os.environ['CF_R2_BUCKET_NAME'], object_key)
-            print(f"Uploaded to {os.environ['CF_R2_BUCKET_NAME']}/{object_key}")
-            EOF
+      # - name: Upload site.yml
+      #   env:
+      #     CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+      #     CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+      #     CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
+      #     CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
+      #   run: |
+      #       python << 'EOF'
+      #       import boto3
+      #       import os
+      #       client = boto3.client('s3',
+      #                   endpoint_url=os.environ['CF_R2_ENDPOINT_URL'],
+      #                   aws_access_key_id=os.environ['CF_R2_ACCESS_KEY_ID'],
+      #                   aws_secret_access_key=os.environ['CF_R2_SECRET_ACCESS_KEY'],
+      #                   region_name='auto'
+      #               )
+      #       local_file = "monitor/site.yml" 
+      #       object_key = "monitor-sites/DKSA/site.yml"
+      #       client.upload_file(local_file, os.environ['CF_R2_BUCKET_NAME'], object_key)
+      #       print(f"Uploaded to {os.environ['CF_R2_BUCKET_NAME']}/{object_key}")
+      #       EOF
 
-      - name: Upload websites-config.yml
-        env:
-          CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
-          CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
-          CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
-          CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
-        run: python monitor/build_monitor_data.py --prefix DKSA --upload-config
+      # - name: Upload websites-config.yml
+      #   env:
+      #     CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+      #     CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+      #     CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
+      #     CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
+      #   run: python monitor/build_monitor_data.py --prefix DKSA --upload-config
 
-      - name: Upload monitor_stats.yml
-        env:
-          CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
-          CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
-          CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
-          CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
-        run: python monitor/build_monitor_data.py --prefix DKSA --build-stats --days 3
-
-      # ✅ خطوة جديدة: طباعة محتوى monitor_stats.yml
-      - name: Print monitor_stats.yml
+      # ✅ خطوة جديدة: طباعة جميع المسارات في R2
+      - name: Debug - Print all R2 paths
         env:
           CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
@@ -65,8 +57,103 @@ jobs:
           python << 'EOF'
           import boto3
           import os
-          import yaml
+          from datetime import datetime
 
+          def print_all_r2_paths(client, bucket, base_prefix="DKSA", date_str=None):
+              """Print all R2 paths for debugging."""
+              if date_str:
+                  year, month, day = date_str.split("-")
+                  prefix = f"{base_prefix}/year={year}/month={month}/day={day}/"
+              else:
+                  prefix = f"{base_prefix}/"
+              
+              print("=" * 70)
+              print(f"📂 SCANNING R2 PATHS: {prefix}")
+              print("=" * 70)
+              
+              try:
+                  paginator = client.get_paginator("list_objects_v2")
+                  folders = set()
+                  all_keys = []
+                  
+                  for page in paginator.paginate(Bucket=bucket, Prefix=prefix, Delimiter='/'):
+                      for common_prefix in page.get('CommonPrefixes', []):
+                          folders.add(common_prefix['Prefix'])
+                      for obj in page.get('Contents', []):
+                          key = obj['Key']
+                          if not key.endswith('/'):
+                              all_keys.append({'key': key, 'size': obj['Size']})
+                  
+                  print(f"\n📁 FOLDERS ({len(folders)}):")
+                  for folder in sorted(folders):
+                      print(f"   📂 {folder}")
+                  
+                  # Also show files at root level
+                  excel_files = [k for k in all_keys if k['key'].endswith('.xlsx')]
+                  json_files = [k for k in all_keys if k['key'].endswith('.json')]
+                  
+                  print(f"\n📄 FILES at root level:")
+                  print(f"   Excel files: {len(excel_files)}")
+                  print(f"   JSON files: {len(json_files)}")
+                  
+                  # Show sample of Excel files
+                  if excel_files:
+                      print(f"\n   Sample Excel files:")
+                      for item in sorted(excel_files, key=lambda x: x['key'])[:10]:
+                          size_kb = round(item['size'] / 1024, 1)
+                          print(f"      📄 {item['key']} ({size_kb} KB)")
+                      if len(excel_files) > 10:
+                          print(f"      ... and {len(excel_files) - 10} more")
+                  
+                  # Show sample of JSON files
+                  if json_files:
+                      print(f"\n   Sample JSON files:")
+                      for item in sorted(json_files, key=lambda x: x['key'])[:10]:
+                          size_kb = round(item['size'] / 1024, 1)
+                          print(f"      📄 {item['key']} ({size_kb} KB)")
+                      if len(json_files) > 10:
+                          print(f"      ... and {len(json_files) - 10} more")
+                  
+                  # Deep scan for Excel files
+                  print("\n" + "=" * 70)
+                  print("🔍 DEEP SCAN (Excel files only):")
+                  print("=" * 70)
+                  
+                  # Scan recursively for Excel files
+                  def scan_excel(prefix_inner, depth=0, max_depth=5):
+                      if depth > max_depth:
+                          return
+                      indent = "  " * depth
+                      try:
+                          paginator2 = client.get_paginator("list_objects_v2")
+                          folders = []
+                          excel_found = []
+                          for page in paginator2.paginate(Bucket=bucket, Prefix=prefix_inner, Delimiter='/'):
+                              for common_prefix in page.get('CommonPrefixes', []):
+                                  folders.append(common_prefix['Prefix'])
+                              for obj in page.get('Contents', []):
+                                  key = obj['Key']
+                                  if key.endswith('.xlsx') and not key.endswith('/'):
+                                      excel_found.append(key)
+                          
+                          if excel_found:
+                              print(f"{indent}📂 {prefix_inner} → {len(excel_found)} Excel files")
+                              for f in excel_found[:5]:
+                                  print(f"{indent}   📄 {f}")
+                              if len(excel_found) > 5:
+                                  print(f"{indent}   ... and {len(excel_found) - 5} more")
+                          
+                          for folder in folders[:10]:
+                              scan_excel(folder, depth + 1, max_depth)
+                      except Exception as e:
+                          pass
+                  
+                  scan_excel(prefix)
+                  
+              except Exception as e:
+                  print(f"❌ Error scanning R2: {e}")
+
+          # Run the function
           client = boto3.client('s3',
               endpoint_url=os.environ['CF_R2_ENDPOINT_URL'],
               aws_access_key_id=os.environ['CF_R2_ACCESS_KEY_ID'],
@@ -74,55 +161,94 @@ jobs:
               region_name='auto'
           )
           bucket = os.environ['CF_R2_BUCKET_NAME']
-          key = "DKSA/monitor/monitor_stats.yml"
-
-          try:
-              resp = client.get_object(Bucket=bucket, Key=key)
-              content = resp['Body'].read().decode('utf-8')
-              data = yaml.safe_load(content)
-              
-              print("=" * 60)
-              print("📊 MONITOR_STATS.YML")
-              print("=" * 60)
-              print(f"Total scrapers: {len(data)}")
-              print("-" * 60)
-              
-              for scraper_name, stats in data.items():
-                  observed_dates = stats.get('observed_dates', [])
-                  sheets = stats.get('sheets', {})
-                  file_size = stats.get('file_size_kb', {})
-                  
-                  print(f"\n🔹 {scraper_name}")
-                  print(f"   Observed dates: {len(observed_dates)} days")
-                  if observed_dates:
-                      print(f"   First: {observed_dates[0]}")
-                      print(f"   Last:  {observed_dates[-1]}")
-                  print(f"   Sheets: {len(sheets)}")
-                  if file_size:
-                      print(f"   File size (KB): min={file_size.get('min')}, max={file_size.get('max')}, last={file_size.get('last')}")
-                  
-                  # طباعة أول 3 sheets
-                  for sheet_name, sheet_data in list(sheets.items())[:3]:
-                      row_count = sheet_data.get('row_count', {})
-                      cols = sheet_data.get('columns', [])
-                      print(f"      - {sheet_name}: {row_count.get('last', 0)} rows, {len(cols)} columns")
-                  if len(sheets) > 3:
-                      print(f"      ... and {len(sheets) - 3} more sheets")
-              
-              print("\n" + "=" * 60)
-              
-          except Exception as e:
-              print(f"❌ Error reading monitor_stats.yml: {e}")
+          
+          # Check both dates
+          print("\n" + "=" * 70)
+          print("📅 CHECKING 2026-08-02")
+          print("=" * 70)
+          print_all_r2_paths(client, bucket, "DKSA", "2026-08-02")
+          
+          print("\n" + "=" * 70)
+          print("📅 CHECKING 2026-08-03")
+          print("=" * 70)
+          print_all_r2_paths(client, bucket, "DKSA", "2026-08-03")
+          
           EOF
 
-      - name: Upload report.json
-        env:
-          CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
-          CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
-          CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
-          CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
-        run: |
-          DATE_PREFIX=$(date -d 'yesterday' +'%Y-%m-%d')
-          DATE_PREFIX="2026-08-02"
-          echo "Generating report for: $DATE_PREFIX"
-          python monitor/build_monitor_data.py --prefix DKSA --report-date "$DATE_PREFIX"
+      # - name: Upload monitor_stats.yml
+      #   env:
+      #     CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+      #     CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+      #     CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
+      #     CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
+      #   run: python monitor/build_monitor_data.py --prefix DKSA --build-stats --days 2
+
+      # - name: Print monitor_stats.yml
+      #   env:
+      #     CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+      #     CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+      #     CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
+      #     CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
+      #   run: |
+      #     python << 'EOF'
+      #     import boto3
+      #     import os
+      #     import yaml
+
+      #     client = boto3.client('s3',
+      #         endpoint_url=os.environ['CF_R2_ENDPOINT_URL'],
+      #         aws_access_key_id=os.environ['CF_R2_ACCESS_KEY_ID'],
+      #         aws_secret_access_key=os.environ['CF_R2_SECRET_ACCESS_KEY'],
+      #         region_name='auto'
+      #     )
+      #     bucket = os.environ['CF_R2_BUCKET_NAME']
+      #     key = "DKSA/monitor/monitor_stats.yml"
+
+      #     try:
+      #         resp = client.get_object(Bucket=bucket, Key=key)
+      #         content = resp['Body'].read().decode('utf-8')
+      #         data = yaml.safe_load(content)
+              
+      #         print("=" * 60)
+      #         print("📊 MONITOR_STATS.YML")
+      #         print("=" * 60)
+      #         print(f"Total scrapers: {len(data)}")
+      #         print("-" * 60)
+              
+      #         for scraper_name, stats in data.items():
+      #             observed_dates = stats.get('observed_dates', [])
+      #             sheets = stats.get('sheets', {})
+      #             file_size = stats.get('file_size_kb', {})
+                  
+      #             print(f"\n🔹 {scraper_name}")
+      #             print(f"   Observed dates: {len(observed_dates)} days")
+      #             if observed_dates:
+      #                 print(f"   First: {observed_dates[0]}")
+      #                 print(f"   Last:  {observed_dates[-1]}")
+      #             print(f"   Sheets: {len(sheets)}")
+      #             if file_size:
+      #                 print(f"   File size (KB): min={file_size.get('min')}, max={file_size.get('max')}, last={file_size.get('last')}")
+                  
+      #             for sheet_name, sheet_data in list(sheets.items())[:3]:
+      #                 row_count = sheet_data.get('row_count', {})
+      #                 cols = sheet_data.get('columns', [])
+      #                 print(f"      - {sheet_name}: {row_count.get('last', 0)} rows, {len(cols)} columns")
+      #             if len(sheets) > 3:
+      #                 print(f"      ... and {len(sheets) - 3} more sheets")
+              
+      #         print("\n" + "=" * 60)
+              
+      #     except Exception as e:
+      #         print(f"❌ Error reading monitor_stats.yml: {e}")
+      #     EOF
+
+      # - name: Upload report.json
+      #   env:
+      #     CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+      #     CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+      #     CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
+      #     CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
+      #   run: |
+      #     DATE_PREFIX="2026-08-02"
+      #     echo "Generating report for: $DATE_PREFIX"
+      #     python monitor/build_monitor_data.py --prefix DKSA --report-date "$DATE_PREFIX"

@@ -234,7 +234,7 @@ def run_images_chunk(input_path: str, start: int, end: int, workers: int, output
         return
     images_col = find_col(chunk, "images")
     version_col = find_col(chunk, "version_id")
-    data_date = datetime.now(timezone.utc) - timedelta(days=1)
+    data_date = datetime.now(timezone.utc)
     n = len(chunk)
     results = [None] * n
 
@@ -352,7 +352,7 @@ def upload_by_make(by_make: dict[str, dict[str, list]], dt: datetime) -> None:
 
 def run_finalize(input_path: str, images_dir: str, skip_summary: bool = False):
     dt = datetime.now(timezone.utc)
-    data_date = dt - timedelta(days=1)
+    data_date = dt
     
     # Get workflow global start time from GitHub Actions
     workflow_global_start = os.getenv("WORKFLOW_GLOBAL_START")
@@ -458,4 +458,4 @@ if __name__ == "__main__":
         output_csv = args.output_csv or f"images_{args.start}_{args.end}.csv"
         run_images_chunk(args.input_path, args.start, args.end, args.workers, output_csv)
     else:
-        run_finalize(args.input_path, args.images_dir)
+        run_finalize(args.input_path, args.images_dir, args.skip_summary)

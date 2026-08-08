@@ -444,7 +444,7 @@ def run(csv_path: str, date_str: str | None = None, skip_summary: bool = False):
     dt = (
         datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         if date_str
-        else datetime.now(timezone.utc) - timedelta(days=1)
+        else datetime.now(timezone.utc)
     )
     
     # Get workflow global start time from GitHub Actions

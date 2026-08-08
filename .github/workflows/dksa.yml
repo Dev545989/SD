@@ -52,7 +52,7 @@ jobs:
           CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
           CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
-        run: python clean_and_upload.py data/${{ matrix.category }}.csv --date "$(date -u -d 'yesterday' +%Y-%m-%d)" --skip-summary
+        run: python clean_and_upload.py data/${{ matrix.category }}.csv --date "$(date -u +%Y-%m-%d)" --skip-summary
 
       - name: Upload summary placeholder (to be finalized later)
         uses: actions/upload-artifact@v4
@@ -110,4 +110,4 @@ jobs:
           WORKFLOW_DURATION: ${{ steps.workflow_duration.outputs.duration_sec }}
           WORKFLOW_START_TIME: ${{ steps.workflow_duration.outputs.start_time }}
         run: |
-          python finalize_summaries.py --summaries-dir summaries/ --date "$(date -u -d 'yesterday' +%Y-%m-%d)"
+          python finalize_summaries.py --summaries-dir summaries/ --date "$(date -u +%Y-%m-%d)"

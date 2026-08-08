@@ -321,4 +321,4 @@ jobs:
           WORKFLOW_DURATION: ${{ steps.workflow_duration.outputs.duration_sec }}
           WORKFLOW_START_TIME: ${{ steps.workflow_duration.outputs.start_time }}
         run: |
-          python finalize_summaries.py --summaries-dir summaries/ --date "$(date -u -d 'yesterday' +%Y-%m-%d)" --workflow motors
+          python finalize_summaries.py --summaries-dir summaries/ --date "$(date -u +%Y-%m-%d)" --workflow motors

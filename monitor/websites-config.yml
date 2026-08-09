@@ -12,71 +12,119 @@ meta:
 # ------------------------------------------------------------
 scrapers:
 
-  - name: Vehicles
-    url: https://www.dubizzle.sa/en/vehicles/
+  - name: cars-for-sale (vehicles)
+    url: https://www.dubizzle.sa/en/vehicles/cars-for-sale/
     batch: "DKSA"
     workflow_file: dksa.yml
-    r2_path: "{r2_bucket}/DKSA/Vehicles"
+    r2_path: "{r2_bucket}/DKSA/vehicles/cars-for-sale"
+    
+  - name: cars-for-rent (vehicles)
+    url: https://www.dubizzle.sa/en/vehicles/cars-for-rent/
+    batch: "DKSA"
+    workflow_file: dksa.yml
+    r2_path: "{r2_bucket}/DKSA/vehicles/cars-for-rent/"
 
-  - name: Mobile Phones & Accessories
+  - name: car-accessories (vehicles)
+    url: https://www.dubizzle.sa/en/vehicles/car-accessories/
+    batch: "DKSA"
+    workflow_file: dksa.yml
+    r2_path: "{r2_bucket}/DKSA/vehicles/car-accessories"
+
+  - name: motorcycles (vehicles)
+    url: https://www.dubizzle.sa/en/vehicles/motorcycles/
+    batch: "DKSA"
+    workflow_file: dksa.yml
+    r2_path: "{r2_bucket}/DKSA/vehicles/motorcycles"
+
+  - name: boats (vehicles)
+    url: https://www.dubizzle.sa/en/vehicles/boats/
+    batch: "DKSA"
+    workflow_file: dksa.yml
+    r2_path: "{r2_bucket}/DKSA/vehicles/boats"
+
+  - name: trucks (vehicles)
+    url: https://www.dubizzle.sa/en/vehicles/trucks/
+    batch: "DKSA"
+    workflow_file: dksa.yml
+    r2_path: "{r2_bucket}/DKSA/vehicles/trucks"
+
+  - name: other-vehicles (vehicles)
+    url: https://www.dubizzle.sa/en/vehicles/other-vehicles/
+    batch: "DKSA"
+    workflow_file: dksa.yml
+    r2_path: "{r2_bucket}/DKSA/vehicles/other-vehicles"
+
+  - name: spare-parts (vehicles)
+    url: https://www.dubizzle.sa/en/vehicles/spare-parts/
+    batch: "DKSA"
+    workflow_file: dksa.yml
+    r2_path: "{r2_bucket}/DKSA/vehicles/spare-parts"
+
+  - name: vip-car-plates (vehicles)
+    url: https://www.dubizzle.sa/en/vehicles/vip-car-plates/
+    batch: "DKSA"
+    workflow_file: dksa.yml
+    r2_path: "{r2_bucket}/DKSA/vehicles/vip-car-plates"
+
+  - name: mobile-phones-accessories
     url: https://www.dubizzle.sa/en/mobile-phones-accessories/
     batch: "DKSA"
     workflow_file: dksa.yml
-    r2_path: "{r2_bucket}/DKSA/Mobile Phones & Accessories"
+    r2_path: "{r2_bucket}/DKSA/mobile-phones-accessories"
 
-  - name: Electronics & Home Appliances
+  - name: electronics-home-appliances
     url: https://www.dubizzle.sa/en/electronics-home-appliances/
     batch: "DKSA"
     workflow_file: dksa.yml
-    r2_path: "{r2_bucket}/DKSA/Electronics & Home Appliances"
+    r2_path: "{r2_bucket}/DKSA/electronics-home-appliances"
 
-  - name: Home & Garden
+  - name: home-garden
     url: https://www.dubizzle.sa/en/home-garden/
     batch: "DKSA"
     workflow_file: dksa.yml
-    r2_path: "{r2_bucket}/DKSA/Home & Garden"
+    r2_path: "{r2_bucket}/DKSA/home-garden"
 
-  - name: Fashion & Beauty
+  - name: fashion-beauty
     url: https://www.dubizzle.sa/en/fashion-beauty/
     batch: "DKSA"
     workflow_file: dksa.yml
-    r2_path: "{r2_bucket}/DKSA/Fashion & Beauty"
+    r2_path: "{r2_bucket}/DKSA/fashion-beauty"
 
-  - name: Pets
+  - name: pets
     url: https://www.dubizzle.sa/en/pets/
     batch: "DKSA"
     workflow_file: dksa.yml
-    r2_path: "{r2_bucket}/DKSA/Pets"
+    r2_path: "{r2_bucket}/DKSA/pets"
 
-  - name: Kids & Babies
+  - name: kids-babies
     url: https://www.dubizzle.sa/en/kids-babies/
     batch: "DKSA"
     workflow_file: dksa.yml
-    r2_path: "{r2_bucket}/DKSA/Kids & Babies"
+    r2_path: "{r2_bucket}/DKSA/kids-babies"
 
-  - name: Sporting Goods & Bikes
+  - name: sporting-goods-bikes
     url: https://www.dubizzle.sa/en/sporting-goods-bikes/
     batch: "DKSA"
     workflow_file: dksa.yml
-    r2_path: "{r2_bucket}/DKSA/Sporting Goods & Bikes"
+    r2_path: "{r2_bucket}/DKSA/sporting-goods-bikes"
 
-  - name: Hobbies, Music, Art & Books
+  - name: hobbies-music-art-books
     url: https://www.dubizzle.sa/en/hobbies-music-art-books/
     batch: "DKSA"
     workflow_file: dksa.yml
-    r2_path: "{r2_bucket}/DKSA/Hobbies, Music, Art & Books"
+    r2_path: "{r2_bucket}/DKSA/hobbies-music-art-books"
 
-  - name: Jobs
+  - name: jobs-services
     url: https://www.dubizzle.sa/en/jobs-services/
     batch: "DKSA"
     workflow_file: dksa.yml
-    r2_path: "{r2_bucket}/DKSA/Jobs"
+    r2_path: "{r2_bucket}/DKSA/jobs-services"
 
-  - name: Business & Industrial
+  - name: business-industrial
     url: https://www.dubizzle.sa/en/business-industrial/
     batch: "DKSA"
     workflow_file: dksa.yml
-    r2_path: "{r2_bucket}/DKSA/Business & Industrial"
+    r2_path: "{r2_bucket}/DKSA/business-industrial"
 
   - name: motors
     url: https://www.dubizzle.sa/en/motors/new-cars/
@@ -281,7 +329,7 @@ excel_schema:
 
   # ── BATCH DKSA ─────────────────────────────────────────────────
 
-  - scraper: Vehicles
+  - scraper: cars-for-sale
     excel_file_pattern: "{brand_name}.xlsx"
     sheets:
       - name: "{car_type}"
@@ -289,7 +337,71 @@ excel_schema:
         row_count_range: [1, 1]
     min_file_size_kb: 5
 
-  - scraper: Mobile Phones & Accessories
+  - scraper: cars-for-rent
+    excel_file_pattern: "{brand_name}.xlsx"
+    sheets:
+      - name: "{car_type}"
+        required_columns: *col_vehicles_listing
+        row_count_range: [1, 1]
+    min_file_size_kb: 5
+
+  - scraper: car-accessories
+    excel_file_pattern: "{category_slug}.xlsx"
+    sheets:
+      - name: "{child_category or Main}"                
+        required_columns: *col_vehicles_listing
+        row_count_range: [1, 1]
+    min_file_size_kb: 5
+
+  - scraper: motorcycles
+    excel_file_pattern: "{category_slug}.xlsx"
+    sheets:
+      - name: "{child_category or Main}"                
+        required_columns: *col_vehicles_listing
+        row_count_range: [1, 1]
+    min_file_size_kb: 5
+  
+  - scraper: boats
+    excel_file_pattern: "{category_slug}.xlsx"
+    sheets:
+      - name: "{child_category or Main}"                
+        required_columns: *col_vehicles_listing
+        row_count_range: [1, 1]
+    min_file_size_kb: 5
+
+  - scraper: trucks
+    excel_file_pattern: "{category_slug}.xlsx"
+    sheets:
+      - name: "{child_category or Main}"                
+        required_columns: *col_vehicles_listing
+        row_count_range: [1, 1]
+    min_file_size_kb: 5
+
+  - scraper: other-vehicles
+    excel_file_pattern: "{category_slug}.xlsx"
+    sheets:
+      - name: "{child_category or Main}"                
+        required_columns: *col_vehicles_listing
+        row_count_range: [1, 1]
+    min_file_size_kb: 5
+  
+  - scraper: spare-parts
+    excel_file_pattern: "{category_slug}.xlsx"
+    sheets:
+      - name: "{child_category or Main}"                
+        required_columns: *col_vehicles_listing
+        row_count_range: [1, 1]
+    min_file_size_kb: 5
+
+  - scraper: vip-car-plates
+    excel_file_pattern: "{category_slug}.xlsx"
+    sheets:
+      - name: "{child_category or Main}"                
+        required_columns: *col_vehicles_listing
+        row_count_range: [1, 1]
+    min_file_size_kb: 5
+
+  - scraper: mobile-phones-accessories
     excel_file_pattern: "{category_slug}.xlsx"
     sheets:
       - name: "{child_category or Main}"                
@@ -297,7 +409,7 @@ excel_schema:
         row_count_range: [1, 1]
     min_file_size_kb: 5
 
-  - scraper: Electronics & Home Appliances
+  - scraper: electronics-home-appliances
     excel_file_pattern: "{subcategory_slug}.xlsx"
     sheets:
       - name: "{child_category or Main}"                
@@ -305,7 +417,7 @@ excel_schema:
         row_count_range: [1, 1]
     min_file_size_kb: 5
 
-  - scraper: Home & Garden
+  - scraper: home-garden
     excel_file_pattern: "{subcategory_slug}.xlsx"
     sheets:
       - name: "{child_category or Main}"                
@@ -313,7 +425,7 @@ excel_schema:
         row_count_range: [1, 1]
     min_file_size_kb: 5
 
-  - scraper: Fashion & Beauty
+  - scraper: fashion-beauty
     excel_file_pattern: "{subcategory_slug}.xlsx"
     sheets:
       - name: "{child_category or Main}"                
@@ -321,7 +433,7 @@ excel_schema:
         row_count_range: [1, 1]
     min_file_size_kb: 5
 
-  - scraper: Pets
+  - scraper: Ppets
     excel_file_pattern: "{category_slug}.xlsx"
     sheets:
       - name: "{child_category or Main}"                
@@ -329,7 +441,7 @@ excel_schema:
         row_count_range: [1, 1]
     min_file_size_kb: 5
 
-  - scraper: Kids & Babies
+  - scraper: kids-babies
     excel_file_pattern: "{category_slug}.xlsx"
     sheets:
       - name: "{child_category or Main}"                
@@ -337,7 +449,7 @@ excel_schema:
         row_count_range: [1, 1]
     min_file_size_kb: 5
 
-  - scraper: Sporting Goods & Bikes
+  - scraper: sporting-goods-bikes
     excel_file_pattern: "{category_slug}.xlsx"
     sheets:
       - name: "{child_category or Main}"                
@@ -345,7 +457,7 @@ excel_schema:
         row_count_range: [1, 1]
     min_file_size_kb: 5
 
-  - scraper: Hobbies, Music, Art & Books
+  - scraper: hobbies-music-art-books
     excel_file_pattern: "{category_slug}.xlsx"
     sheets:
       - name: "{child_category or Main}"                
@@ -353,7 +465,7 @@ excel_schema:
         row_count_range: [1, 1]
     min_file_size_kb: 5
 
-  - scraper: Jobs
+  - scraper: jobs-services
     excel_file_pattern: "{category_slug}.xlsx"
     sheets:
       - name: "{child_category or Main}"                
@@ -361,7 +473,7 @@ excel_schema:
         row_count_range: [1, 1]
     min_file_size_kb: 5
 
-  - scraper: Business & Industrial
+  - scraper: business-industrial
     excel_file_pattern: "{category_slug}.xlsx"
     sheets:
       - name: "{child_category or Main}"                
@@ -402,16 +514,24 @@ alert_thresholds:
   # Per-scraper observed file-size floors (KB) from real stats × 50%, floored at schema min
   # Used as a fast check even before trend history exists
   observed_min_file_size_kb: 
-    Vehicles: 5
-    Mobile Phones & Accessories: 5
-    Electronics & Home Appliances: 5
-    Home & Garden: 5
-    Fashion & Beauty: 5
-    Pets: 5
-    Kids & Babies: 5 
-    Sporting Goods & Bikes: 5
-    Hobbies, Music, Art & Books: 5
-    Jobs: 5
+    cars-for-sale: 5
+    cars-for-rent: 5
+    car-accessories: 5
+    motorcycles: 5
+    boats: 5
+    trucks: 5
+    other-vehicles: 5
+    spare-parts: 5
+    vip-car-plates: 5
+    mobile-phones-accessories: 5
+    electronics-home-appliances: 5
+    home-garden: 5
+    fashion-beauty: 5
+    pets: 5
+    kids-babies: 5 
+    sporting-goods-bikes: 5
+    hobbies-music-art-books: 5
+    jobs-services: 5
     Business & Industrial: 5
     motors: 5
 

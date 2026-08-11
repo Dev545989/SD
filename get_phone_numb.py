@@ -3,7 +3,7 @@ import re
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
 
-WARMUP_URL = "https://www.dubizzle.sa/en/ad/%D9%84%D9%84%D8%A8%D9%8A%D8%B9-%D9%84%D9%83%D8%B2%D8%B3-es350-%D9%85%D9%88%D8%AF%D9%8A%D9%84-2015-ID110681220.html"
+WARMUP_URL = "https://www.dubizzle.sa/en/ad/%D8%AA%D9%88%D9%8A%D9%88%D8%AA%D8%A7-%D9%84%D8%A7%D9%86%D8%AF-%D9%83%D8%B1%D9%88%D8%B2%D8%B1-gxr3-%D9%85%D9%88%D8%AF%D9%8A%D9%84-2024-ID110711279.html"
 
 match = re.search(r"ID(\d+)\.html", WARMUP_URL)
 if not match:

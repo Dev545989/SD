@@ -1,0 +1,134 @@
+name: Move Motors Summary
+
+on:
+  workflow_dispatch:
+
+jobs:
+  move-motors-summary:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install boto3
+
+      - name: Move Motors summary into motors
+        env:
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          python - <<'PY'
+          import os
+          import boto3
+
+          # ============================================================
+          # R2 Client
+          # ============================================================
+
+          s3 = boto3.client(
+              "s3",
+              endpoint_url=os.environ["R2_ENDPOINT"],
+              aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+              aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+          )
+
+          bucket = os.environ["R2_BUCKET"]
+
+          # ============================================================
+          # Paths
+          # ============================================================
+
+          old_prefix = "DKSA/year=2026/month=08/day=11/Motors/summary/"
+          new_prefix = "DKSA/year=2026/month=08/day=11/motors/summary/"
+
+          print("=" * 70)
+          print("🚚 Moving Motors summary")
+          print("=" * 70)
+          print(f"FROM: {old_prefix}")
+          print(f"TO:   {new_prefix}")
+          print("=" * 70)
+
+          # ============================================================
+          # Find old objects
+          # ============================================================
+
+          paginator = s3.get_paginator("list_objects_v2")
+
+          objects = []
+
+          for page in paginator.paginate(
+              Bucket=bucket,
+              Prefix=old_prefix
+          ):
+              objects.extend(page.get("Contents", []))
+
+          if not objects:
+              print("❌ No objects found under:")
+              print(old_prefix)
+              exit(0)
+
+          print(f"📦 Found {len(objects)} object(s)")
+          print()
+
+          # ============================================================
+          # Copy then delete
+          # ============================================================
+
+          moved = 0
+
+          for obj in objects:
+              old_key = obj["Key"]
+
+              # Keep the path after Motors/summary/
+              relative_path = old_key[len(old_prefix):]
+
+              new_key = new_prefix + relative_path
+
+              print(f"📄 {old_key}")
+              print(f"   → {new_key}")
+
+              # --------------------------------------------------------
+              # 1. Copy to new location
+              # --------------------------------------------------------
+
+              s3.copy_object(
+                  Bucket=bucket,
+                  CopySource={
+                      "Bucket": bucket,
+                      "Key": old_key
+                  },
+                  Key=new_key
+              )
+
+              # --------------------------------------------------------
+              # 2. Delete old object only after successful copy
+              # --------------------------------------------------------
+
+              s3.delete_object(
+                  Bucket=bucket,
+                  Key=old_key
+              )
+
+              moved += 1
+
+              print("   ✅ Moved")
+              print()
+
+          # ============================================================
+          # Done
+          # ============================================================
+
+          print("=" * 70)
+          print(f"✅ Successfully moved {moved} object(s)")
+          print("=" * 70)
+          

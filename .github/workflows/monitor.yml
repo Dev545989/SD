@@ -99,3 +99,4 @@ jobs:
           DATE_PREFIX=$(date -u +%Y-%m-%d)
           echo "Generating report for: $DATE_PREFIX"
           python monitor/build_monitor_data.py --prefix DKSA --report-date 2026-08-10
+          python monitor/build_monitor_data.py --prefix DKSA --report-date "$DATE_PREFIX"

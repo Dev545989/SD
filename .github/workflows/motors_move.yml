@@ -22,14 +22,43 @@ jobs:
 
       - name: Move Motors summary into motors
         env:
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
+          CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
+
         run: |
           python - <<'PY'
           import os
           import boto3
+
+          # ============================================================
+          # R2 Configuration
+          # ============================================================
+
+          endpoint_url = os.environ["CF_R2_ENDPOINT_URL"]
+          access_key = os.environ["CF_R2_ACCESS_KEY_ID"]
+          secret_key = os.environ["CF_R2_SECRET_ACCESS_KEY"]
+          bucket = os.environ["CF_R2_BUCKET_NAME"]
+
+          if not endpoint_url:
+              raise ValueError("CF_R2_ENDPOINT_URL is empty")
+
+          if not access_key:
+              raise ValueError("CF_R2_ACCESS_KEY_ID is empty")
+
+          if not secret_key:
+              raise ValueError("CF_R2_SECRET_ACCESS_KEY is empty")
+
+          if not bucket:
+              raise ValueError("CF_R2_BUCKET_NAME is empty")
+
+          print("=" * 70)
+          print("R2 Configuration")
+          print("=" * 70)
+          print(f"Endpoint: {endpoint_url}")
+          print(f"Bucket:   {bucket}")
+          print("=" * 70)
 
           # ============================================================
           # R2 Client
@@ -37,29 +66,35 @@ jobs:
 
           s3 = boto3.client(
               "s3",
-              endpoint_url=os.environ["R2_ENDPOINT"],
-              aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
-              aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+              endpoint_url=endpoint_url,
+              aws_access_key_id=access_key,
+              aws_secret_access_key=secret_key,
           )
-
-          bucket = os.environ["R2_BUCKET"]
 
           # ============================================================
           # Paths
           # ============================================================
 
-          old_prefix = "DKSA/year=2026/month=08/day=11/Motors/summary/"
-          new_prefix = "DKSA/year=2026/month=08/day=11/motors/summary/"
+          old_prefix = (
+              "DKSA/year=2026/month=08/day=11/"
+              "Motors/summary/"
+          )
 
+          new_prefix = (
+              "DKSA/year=2026/month=08/day=11/"
+              "motors/summary/"
+          )
+
+          print()
           print("=" * 70)
-          print("🚚 Moving Motors summary")
+          print("Moving Motors summary")
           print("=" * 70)
           print(f"FROM: {old_prefix}")
           print(f"TO:   {new_prefix}")
           print("=" * 70)
 
           # ============================================================
-          # Find old objects
+          # Find objects under Motors/summary/
           # ============================================================
 
           paginator = s3.get_paginator("list_objects_v2")
@@ -73,10 +108,12 @@ jobs:
               objects.extend(page.get("Contents", []))
 
           if not objects:
+              print()
               print("❌ No objects found under:")
               print(old_prefix)
               exit(0)
 
+          print()
           print(f"📦 Found {len(objects)} object(s)")
           print()
 
@@ -89,7 +126,7 @@ jobs:
           for obj in objects:
               old_key = obj["Key"]
 
-              # Keep the path after Motors/summary/
+              # Get everything after Motors/summary/
               relative_path = old_key[len(old_prefix):]
 
               new_key = new_prefix + relative_path
@@ -98,31 +135,33 @@ jobs:
               print(f"   → {new_key}")
 
               # --------------------------------------------------------
-              # 1. Copy to new location
+              # Copy
               # --------------------------------------------------------
 
               s3.copy_object(
                   Bucket=bucket,
                   CopySource={
                       "Bucket": bucket,
-                      "Key": old_key
+                      "Key": old_key,
                   },
-                  Key=new_key
+                  Key=new_key,
               )
 
+              print("   ✅ Copied")
+
               # --------------------------------------------------------
-              # 2. Delete old object only after successful copy
+              # Delete old object
               # --------------------------------------------------------
 
               s3.delete_object(
                   Bucket=bucket,
-                  Key=old_key
+                  Key=old_key,
               )
 
-              moved += 1
-
-              print("   ✅ Moved")
+              print("   🗑️ Deleted old object")
               print()
+
+              moved += 1
 
           # ============================================================
           # Done
@@ -131,4 +170,3 @@ jobs:
           print("=" * 70)
           print(f"✅ Successfully moved {moved} object(s)")
           print("=" * 70)
-          

@@ -4,7 +4,7 @@ meta:
   github_username: "Dev545989"
   repo: SD                             # Single repo confirmed from workspace
   run_environment: GitHub Actions      # All pipelines run on ubuntu-22.04
-  r2_bucket: "testing"                 # Your R2 bucket name (same as CF_R2_BUCKET_NAME secret)
+  r2_bucket: "data-collection-dl"                 # Your R2 bucket name (same as CF_R2_BUCKET_NAME secret)
   r2_prefix: "DKSA"                    # Fixed prefix inside the bucket
 
 # ------------------------------------------------------------

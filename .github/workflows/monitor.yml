@@ -44,13 +44,13 @@ jobs:
       #       print(f"Uploaded to {os.environ['CF_R2_BUCKET_NAME']}/{object_key}")
       #       EOF
 
-      # - name: Upload websites-config.yml
-      #   env:
-      #     CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
-      #     CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
-      #     CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
-      #     CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
-      #   run: python monitor/build_monitor_data.py --prefix DKSA --upload-config
+      - name: Upload websites-config.yml
+        env:
+          CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
+          CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
+        run: python monitor/build_monitor_data.py --prefix DKSA --upload-config
 
       - name: Diagnose R2 paths
         env:

@@ -14,6 +14,8 @@ For each category under DKSA/year=YYYY/month=MM/day=DD/:
   5. If previous day has agent-agency/category/agent-agency.xlsx, merges with it
   6. Writes to DKSA/year=YYYY/month=MM/day=DD/agent-agency/<category>/agent-agency.xlsx
 
+Normalizes category names to lowercase-hyphen format for consistent output paths.
+
 Environment variables:
     CF_R2_ENDPOINT_URL
     CF_R2_ACCESS_KEY_ID
@@ -25,6 +27,7 @@ import os
 import sys
 import json
 import ast
+import re
 import boto3
 import pandas as pd
 from io import BytesIO
@@ -71,6 +74,15 @@ def get_prev_day_prefix(year: str, month: str, day: str):
     return get_day_prefix(f"{dt.year:04d}", f"{dt.month:02d}", f"{dt.day:02d}")
 
 
+def normalize_category(cat: str) -> str:
+    """Normalize category name: lowercase, replace spaces/& with hyphens."""
+    cat = cat.lower().strip()
+    cat = re.sub(r'[\s&]+', '-', cat)
+    cat = re.sub(r'-+', '-', cat)
+    cat = cat.strip('-')
+    return cat
+
+
 def list_folders(prefix: str):
     folders = []
     paginator = s3.get_paginator("list_objects_v2")
@@ -103,7 +115,6 @@ def read_excel_sheets(key: str):
 
 
 def safe_parse_dict(raw: str):
-    """Parse a string that might be JSON or a Python dict literal."""
     raw = raw.strip()
     if not raw or raw in ("contact_info", "nan", "None", "NaN", "null", ""):
         return None
@@ -124,14 +135,12 @@ def extract_contacts_from_sheets(sheets: dict):
         if df.empty:
             continue
 
-        # Priority: contact_info (with underscore, has mobile) > contactInfo (without, no mobile)
         contact_col = None
         for col in df.columns:
             if str(col).strip() == 'contact_info':
                 contact_col = col
                 break
 
-        # Fallback to contactInfo if contact_info not found
         if contact_col is None:
             for col in df.columns:
                 if str(col).strip().lower() == 'contactinfo':
@@ -209,6 +218,9 @@ def get_categories(day_prefix: str):
 
 
 def process_category(day_prefix: str, category: str, prev_day_prefix: str):
+    # Normalize category name for consistent output paths
+    norm_cat = normalize_category(category)
+
     cat_prefix = f"{day_prefix}{category}/"
     excel_keys = list_all_excel_keys(cat_prefix)
 
@@ -219,12 +231,18 @@ def process_category(day_prefix: str, category: str, prev_day_prefix: str):
 
     day_unique = dedup_contacts(day_contacts)
 
-    prev_key = f"{prev_day_prefix}{OUTPUT_SUBDIR}/{category}/{OUTPUT_FILENAME}"
+    # Print extracted contacts with phone numbers
+    for c in day_unique:
+        mobile = c.get("mobile") or c.get("whatsapp") or "N/A"
+        print(f"      📞 {c.get('name')} → {mobile}")
+
+    # Use normalized category name for output path (consistent across days)
+    prev_key = f"{prev_day_prefix}{OUTPUT_SUBDIR}/{norm_cat}/{OUTPUT_FILENAME}"
     prev_contacts = read_previous_contacts(prev_key)
 
     merged = dedup_contacts(prev_contacts + day_unique)
 
-    output_key = f"{day_prefix}{OUTPUT_SUBDIR}/{category}/{OUTPUT_FILENAME}"
+    output_key = f"{day_prefix}{OUTPUT_SUBDIR}/{norm_cat}/{OUTPUT_FILENAME}"
     n_rows = write_contacts_excel(merged, output_key)
 
     print(f"    → {category}: {len(day_unique)} new | {len(prev_contacts)} prev | {len(merged)} total")

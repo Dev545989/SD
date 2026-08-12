@@ -219,11 +219,6 @@ def process_category(day_prefix: str, category: str, prev_day_prefix: str):
 
     day_unique = dedup_contacts(day_contacts)
 
-    # Print extracted contacts with phone numbers
-    for c in day_unique:
-        mobile = c.get("mobile") or c.get("whatsapp") or "N/A"
-        print(f"      📞 {c.get('name')} → {mobile}")
-
     prev_key = f"{prev_day_prefix}{OUTPUT_SUBDIR}/{category}/{OUTPUT_FILENAME}"
     prev_contacts = read_previous_contacts(prev_key)
 

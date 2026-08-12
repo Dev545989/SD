@@ -8,7 +8,7 @@ Example: python r2_contact_extractor.py 2026-08-11
 
 For each category under DKSA/year=YYYY/month=MM/day=DD/:
   1. Reads all .xlsx files recursively (multi-sheet, with headers)
-  2. Extracts contact_info JSON from the 'contact_info' column
+  2. Extracts contact_info from the 'contactInfo' column (handles Python dict strings)
   3. Filters out entries where name is null
   4. Deduplicates by mobile number
   5. If previous day has agent-agency/category/agent-agency.xlsx, merges with it
@@ -24,6 +24,7 @@ Environment variables:
 import os
 import sys
 import json
+import ast
 import boto3
 import pandas as pd
 from io import BytesIO
@@ -101,16 +102,34 @@ def read_excel_sheets(key: str):
         return {}
 
 
+def safe_parse_dict(raw: str):
+    """Parse a string that might be JSON or a Python dict literal."""
+    raw = raw.strip()
+    if not raw or raw in ("contact_info", "nan", "None", "NaN", "null", ""):
+        return None
+
+    # Try JSON first
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+
+    # Try Python literal eval (handles single quotes)
+    try:
+        return ast.literal_eval(raw)
+    except (ValueError, SyntaxError):
+        pass
+
+    return None
+
+
 def extract_contacts_from_sheets(sheets: dict, file_key: str = ""):
     contacts = []
     for sheet_name, df in sheets.items():
         if df.empty:
-            print(f"    [DEBUG] Sheet '{sheet_name}' is EMPTY")
             continue
 
-        print(f"    [DEBUG] Sheet '{sheet_name}': shape={df.shape}")
-        print(f"    [DEBUG] Columns: {list(df.columns)}")
-
+        # Find the contact_info column
         contact_col = None
         for col in df.columns:
             col_str = str(col).strip().lower()
@@ -119,29 +138,21 @@ def extract_contacts_from_sheets(sheets: dict, file_key: str = ""):
                 break
 
         if contact_col is None:
-            print(f"    [DEBUG] ❌ No contact_info column found!")
             continue
 
         col_values = df[contact_col].dropna().astype(str)
-        print(f"    [DEBUG] ✅ Column '{contact_col}' has {len(col_values)} non-null values")
 
         parsed_count = 0
         skipped_count = 0
         null_name_count = 0
 
         for i, raw in enumerate(col_values):
-            raw = raw.strip()
+            obj = safe_parse_dict(raw)
 
-            if not raw or raw in ("contact_info", "nan", "None", "NaN", "null"):
-                skipped_count += 1
-                continue
-
-            try:
-                obj = json.loads(raw)
-            except json.JSONDecodeError:
+            if obj is None:
                 skipped_count += 1
                 if i < 2:
-                    print(f"    [DEBUG]    Row {i}: JSON parse error → '{raw[:60]}...'")
+                    print(f"    [DEBUG]    Row {i}: PARSE ERROR → '{str(raw)[:60]}...'")
                 continue
 
             if isinstance(obj, dict):

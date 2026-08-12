@@ -42,7 +42,7 @@ OUTPUT_SUBDIR   = "agent-agency"
 OUTPUT_FILENAME = "agent-agency.xlsx"
 
 if not all([CF_R2_ENDPOINT_URL, CF_R2_ACCESS_KEY, CF_R2_SECRET_KEY, BUCKET_NAME]):
-    print("ERROR: Set CF_R2_ENDPOINT_URL, CF_R2_ACCESS_KEY, CF_R2_SECRET_KEY, BUCKET_NAME")
+    print("ERROR: Set CF_R2_ENDPOINT_URL, CF_R2_ACCESS_KEY_ID, CF_R2_SECRET_ACCESS_KEY, CF_R2_BUCKET_NAME")
     sys.exit(1)
 
 s3 = boto3.client(
@@ -57,13 +57,8 @@ s3 = boto3.client(
 # ---------------------------------------------------------------------------
 
 def parse_date(date_str: str):
-    """Parse 'YYYY-MM-DD' into (year, month, day) strings."""
     dt = datetime.strptime(date_str, "%Y-%m-%d")
-    return (
-        f"{dt.year:04d}",
-        f"{dt.month:02d}",
-        f"{dt.day:02d}",
-    )
+    return f"{dt.year:04d}", f"{dt.month:02d}", f"{dt.day:02d}"
 
 
 def get_day_prefix(year: str, month: str, day: str):
@@ -71,17 +66,11 @@ def get_day_prefix(year: str, month: str, day: str):
 
 
 def get_prev_day_prefix(year: str, month: str, day: str):
-    """Return prefix for the previous calendar day."""
     dt = datetime(int(year), int(month), int(day)) - timedelta(days=1)
-    return get_day_prefix(
-        f"{dt.year:04d}",
-        f"{dt.month:02d}",
-        f"{dt.day:02d}",
-    )
+    return get_day_prefix(f"{dt.year:04d}", f"{dt.month:02d}", f"{dt.day:02d}")
 
 
 def list_folders(prefix: str):
-    """Return sorted list of folder prefixes under given prefix."""
     folders = []
     paginator = s3.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=BUCKET_NAME, Prefix=prefix, Delimiter="/"):
@@ -91,7 +80,6 @@ def list_folders(prefix: str):
 
 
 def list_all_excel_keys(prefix: str):
-    """Recursively list every .xlsx key under prefix (skip temp ~$ files)."""
     keys = []
     paginator = s3.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=BUCKET_NAME, Prefix=prefix):
@@ -103,7 +91,6 @@ def list_all_excel_keys(prefix: str):
 
 
 def read_excel_sheets(key: str):
-    """Download Excel from R2 and return {sheet_name: DataFrame}."""
     try:
         resp = s3.get_object(Bucket=BUCKET_NAME, Key=key)
         data = resp["Body"].read()
@@ -114,39 +101,68 @@ def read_excel_sheets(key: str):
         return {}
 
 
-def extract_contacts_from_sheets(sheets: dict):
-    """Parse contact_info column from every sheet, yield contact dicts (skip null names)."""
+def extract_contacts_from_sheets(sheets: dict, file_key: str = ""):
     contacts = []
     for sheet_name, df in sheets.items():
         if df.empty:
+            print(f"    [DEBUG] Sheet '{sheet_name}' is EMPTY")
             continue
 
-        # Find the contact_info column (could be 'contact_info' or 'contactInfo')
+        print(f"    [DEBUG] Sheet '{sheet_name}': shape={df.shape}")
+        print(f"    [DEBUG] Columns: {list(df.columns)}")
+
         contact_col = None
         for col in df.columns:
-            if str(col).lower() in ('contact_info', 'contactinfo'):
+            col_str = str(col).strip().lower()
+            if col_str in ('contact_info', 'contactinfo'):
                 contact_col = col
                 break
 
         if contact_col is None:
-            print(f"    ⚠️  No contact_info column found in sheet '{sheet_name}'")
+            print(f"    [DEBUG] ❌ No contact_info column found!")
             continue
 
-        for raw in df[contact_col].dropna().astype(str):
+        col_values = df[contact_col].dropna().astype(str)
+        print(f"    [DEBUG] ✅ Column '{contact_col}' has {len(col_values)} non-null values")
+
+        parsed_count = 0
+        skipped_count = 0
+        null_name_count = 0
+
+        for i, raw in enumerate(col_values):
             raw = raw.strip()
-            if not raw or raw in ("nan", "None", "NaN", "null"):
+
+            if not raw or raw in ("contact_info", "nan", "None", "NaN", "null"):
+                skipped_count += 1
                 continue
+
             try:
                 obj = json.loads(raw)
             except json.JSONDecodeError:
+                skipped_count += 1
+                if i < 2:
+                    print(f"    [DEBUG]    Row {i}: JSON parse error → '{raw[:60]}...'")
                 continue
-            if isinstance(obj, dict) and obj.get("name") is not None:
-                contacts.append(obj)
+
+            if isinstance(obj, dict):
+                if obj.get("name") is not None:
+                    contacts.append(obj)
+                    parsed_count += 1
+                    if parsed_count <= 2:
+                        print(f"    [DEBUG]    ✅ EXTRACTED: name={obj.get('name')}, mobile={obj.get('mobile')}")
+                else:
+                    null_name_count += 1
+                    if null_name_count <= 2:
+                        print(f"    [DEBUG]    ⏭️  SKIPPED (name is null)")
+            else:
+                skipped_count += 1
+
+        print(f"    [DEBUG] Summary: {parsed_count} extracted, {null_name_count} null-name, {skipped_count} skipped")
+
     return contacts
 
 
 def dedup_contacts(contacts: list):
-    """Deduplicate by mobile → whatsapp → name. Keep first seen."""
     seen = OrderedDict()
     for c in contacts:
         key = c.get("mobile") or c.get("whatsapp") or c.get("name")
@@ -156,18 +172,14 @@ def dedup_contacts(contacts: list):
 
 
 def read_previous_contacts(prev_key: str):
-    """Read agent-agency.xlsx from previous day if it exists."""
     try:
         resp = s3.get_object(Bucket=BUCKET_NAME, Key=prev_key)
         data = resp["Body"].read()
         df = pd.read_excel(BytesIO(data))
-        # Convert DataFrame rows back to dicts
         contacts = []
         for _, row in df.iterrows():
             record = row.to_dict()
-            # Handle NaN values
             record = {k: (v if pd.notna(v) else None) for k, v in record.items()}
-            # Convert list-like strings back to lists if needed
             for list_col in ["mobileNumbers", "roles"]:
                 if list_col in record and isinstance(record[list_col], str):
                     try:
@@ -184,7 +196,6 @@ def read_previous_contacts(prev_key: str):
 
 
 def write_contacts_excel(contacts: list, output_key: str):
-    """Upload .xlsx of contacts to R2."""
     if not contacts:
         df = pd.DataFrame(columns=["name", "mobile", "whatsapp", "proxyMobile",
                                     "mobileNumbers", "roles"])
@@ -203,7 +214,6 @@ def write_contacts_excel(contacts: list, output_key: str):
 # ---------------------------------------------------------------------------
 
 def get_categories(day_prefix: str):
-    """Return category folder names directly under a day prefix."""
     cats = []
     for p in list_folders(day_prefix):
         cat = p.replace(day_prefix, "").strip("/")
@@ -213,35 +223,25 @@ def get_categories(day_prefix: str):
 
 
 def process_category(day_prefix: str, category: str, prev_day_prefix: str):
-    """
-    1. Read all .xlsx under day_prefix/category/ (recursive)
-    2. Extract & dedup contacts for THIS day
-    3. Read previous day's agent-agency.xlsx if exists
-    4. Merge (cumulative) and dedup again
-    5. Write to day_prefix/agent-agency/category/agent-agency.xlsx
-    Returns number of total contacts written.
-    """
     cat_prefix = f"{day_prefix}{category}/"
     excel_keys = list_all_excel_keys(cat_prefix)
 
     print(f"    Found {len(excel_keys)} Excel file(s)")
+    for k in excel_keys:
+        print(f"      📄 {k}")
 
-    # Extract today's contacts
     day_contacts = []
     for key in excel_keys:
         sheets = read_excel_sheets(key)
-        day_contacts.extend(extract_contacts_from_sheets(sheets))
+        day_contacts.extend(extract_contacts_from_sheets(sheets, key))
 
     day_unique = dedup_contacts(day_contacts)
 
-    # Read previous day's cumulative file
     prev_key = f"{prev_day_prefix}{OUTPUT_SUBDIR}/{category}/{OUTPUT_FILENAME}"
     prev_contacts = read_previous_contacts(prev_key)
 
-    # Merge and dedup
     merged = dedup_contacts(prev_contacts + day_unique)
 
-    # Write output
     output_key = f"{day_prefix}{OUTPUT_SUBDIR}/{category}/{OUTPUT_FILENAME}"
     n_rows = write_contacts_excel(merged, output_key)
 

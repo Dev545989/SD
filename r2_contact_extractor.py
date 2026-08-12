@@ -14,9 +14,9 @@ For each category under DKSA/year=YYYY/month=MM/day=DD/:
   5. Writes to DKSA/year=YYYY/month=MM/day=DD/agent-agency/<category>/agent-agency.xlsx
 
 Environment variables:
-    R2_ENDPOINT_URL
-    R2_ACCESS_KEY_ID
-    R2_SECRET_ACCESS_KEY
+    CF_R2_ENDPOINT_URL
+    CF_R2_ACCESS_KEY
+    CF_R2_SECRET_KEY
     R2_BUCKET_NAME
 """
 
@@ -32,23 +32,23 @@ from datetime import datetime, timedelta
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-R2_ENDPOINT     = os.getenv("R2_ENDPOINT_URL", "").rstrip("/")
-R2_ACCESS_KEY   = os.getenv("R2_ACCESS_KEY_ID", "")
-R2_SECRET_KEY   = os.getenv("R2_SECRET_ACCESS_KEY", "")
-BUCKET_NAME     = os.getenv("R2_BUCKET_NAME", "")
+CF_R2_ACCESS_KEY = os.getenv("CF_R2_ACCESS_KEY_ID")
+CF_R2_SECRET_KEY = os.getenv("CF_R2_SECRET_ACCESS_KEY")
+CF_R2_ENDPOINT_URL = os.getenv("CF_R2_ENDPOINT_URL")
+BUCKET_NAME = os.getenv("CF_R2_BUCKET_NAME", "")
 BASE_PREFIX     = "DKSA/"
 OUTPUT_SUBDIR   = "agent-agency"
 OUTPUT_FILENAME = "agent-agency.xlsx"
 
-if not all([R2_ENDPOINT, R2_ACCESS_KEY, R2_SECRET_KEY, BUCKET_NAME]):
-    print("ERROR: Set R2_ENDPOINT_URL, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME")
+if not all([CF_R2_ENDPOINT_URL, CF_R2_ACCESS_KEY, CF_R2_SECRET_KEY, BUCKET_NAME]):
+    print("ERROR: Set CF_R2_ENDPOINT_URL, CF_R2_ACCESS_KEY, CF_R2_SECRET_KEY, BUCKET_NAME")
     sys.exit(1)
 
 s3 = boto3.client(
     "s3",
-    endpoint_url=R2_ENDPOINT,
-    aws_access_key_id=R2_ACCESS_KEY,
-    aws_secret_access_key=R2_SECRET_KEY,
+    endpoint_url=CF_R2_ENDPOINT_URL,
+    aws_access_key_id=CF_R2_ACCESS_KEY,
+    aws_secret_access_key=CF_R2_SECRET_KEY,
 )
 
 # ---------------------------------------------------------------------------

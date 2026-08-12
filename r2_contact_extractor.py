@@ -231,10 +231,10 @@ def process_category(day_prefix: str, category: str, prev_day_prefix: str):
 
     day_unique = dedup_contacts(day_contacts)
 
-    # Print extracted contacts with phone numbers
-    for c in day_unique:
-        mobile = c.get("mobile") or c.get("whatsapp") or "N/A"
-        print(f"      📞 {c.get('name')} → {mobile}")
+    # # Print extracted contacts with phone numbers
+    # for c in day_unique:
+    #     mobile = c.get("mobile") or c.get("whatsapp") or "N/A"
+    #     print(f"      📞 {c.get('name')} → {mobile}")
 
     # Use normalized category name for output path (consistent across days)
     prev_key = f"{prev_day_prefix}{OUTPUT_SUBDIR}/{norm_cat}/{OUTPUT_FILENAME}"

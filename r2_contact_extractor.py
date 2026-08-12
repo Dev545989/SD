@@ -7,11 +7,12 @@ Usage: python r2_contact_extractor.py <YYYY-MM-DD>
 Example: python r2_contact_extractor.py 2026-08-11
 
 For each category under DKSA/year=YYYY/month=MM/day=DD/:
-  1. Reads all .xlsx files recursively
-  2. Extracts contact_info from column A (skips null names)
-  3. Deduplicates by mobile/whatsapp/name
-  4. If previous day has agent-agency/category/agent-agency.xlsx, merges with it
-  5. Writes to DKSA/year=YYYY/month=MM/day=DD/agent-agency/<category>/agent-agency.xlsx
+  1. Reads all .xlsx files recursively (multi-sheet, with headers)
+  2. Extracts contact_info JSON from the 'contact_info' column
+  3. Filters out entries where name is null
+  4. Deduplicates by mobile number
+  5. If previous day has agent-agency/category/agent-agency.xlsx, merges with it
+  6. Writes to DKSA/year=YYYY/month=MM/day=DD/agent-agency/<category>/agent-agency.xlsx
 
 Environment variables:
     CF_R2_ENDPOINT_URL
@@ -107,22 +108,33 @@ def read_excel_sheets(key: str):
         resp = s3.get_object(Bucket=BUCKET_NAME, Key=key)
         data = resp["Body"].read()
         xl = pd.ExcelFile(BytesIO(data))
-        return {name: xl.parse(name, header=None) for name in xl.sheet_names}
+        return {name: xl.parse(name) for name in xl.sheet_names}
     except Exception as e:
         print(f"  ⚠️  Failed to read {key}: {e}")
         return {}
 
 
 def extract_contacts_from_sheets(sheets: dict):
-    """Parse column A from every sheet, yield contact dicts (skip null names)."""
+    """Parse contact_info column from every sheet, yield contact dicts (skip null names)."""
     contacts = []
     for sheet_name, df in sheets.items():
-        if df.empty or df.shape[1] < 1:
+        if df.empty:
             continue
-        col_a = df.iloc[:, 0].astype(str)
-        for raw in col_a:
+
+        # Find the contact_info column (could be 'contact_info' or 'contactInfo')
+        contact_col = None
+        for col in df.columns:
+            if str(col).lower() in ('contact_info', 'contactinfo'):
+                contact_col = col
+                break
+
+        if contact_col is None:
+            print(f"    ⚠️  No contact_info column found in sheet '{sheet_name}'")
+            continue
+
+        for raw in df[contact_col].dropna().astype(str):
             raw = raw.strip()
-            if raw in ("contact_info", "nan", "None", "", "NaN"):
+            if not raw or raw in ("nan", "None", "NaN", "null"):
                 continue
             try:
                 obj = json.loads(raw)
@@ -211,6 +223,8 @@ def process_category(day_prefix: str, category: str, prev_day_prefix: str):
     """
     cat_prefix = f"{day_prefix}{category}/"
     excel_keys = list_all_excel_keys(cat_prefix)
+
+    print(f"    Found {len(excel_keys)} Excel file(s)")
 
     # Extract today's contacts
     day_contacts = []

@@ -8,17 +8,17 @@ Example: python r2_contact_extractor.py 2026-08-11
 
 For each category under DKSA/year=YYYY/month=MM/day=DD/:
   1. Reads all .xlsx files recursively (multi-sheet, with headers)
-  2. Extracts contact_info from the 'contactInfo' column (handles Python dict strings)
+  2. Extracts contact_info from the 'contact_info' column (with underscore, has mobile numbers)
   3. Filters out entries where name is null
-  4. Deduplicates by mobile number
+  4. Deduplicates by mobile → whatsapp → name
   5. If previous day has agent-agency/category/agent-agency.xlsx, merges with it
   6. Writes to DKSA/year=YYYY/month=MM/day=DD/agent-agency/<category>/agent-agency.xlsx
 
 Environment variables:
     CF_R2_ENDPOINT_URL
-    CF_R2_ACCESS_KEY
-    CF_R2_SECRET_KEY
-    R2_BUCKET_NAME
+    CF_R2_ACCESS_KEY_ID
+    CF_R2_SECRET_ACCESS_KEY
+    CF_R2_BUCKET_NAME
 """
 
 import os
@@ -107,69 +107,44 @@ def safe_parse_dict(raw: str):
     raw = raw.strip()
     if not raw or raw in ("contact_info", "nan", "None", "NaN", "null", ""):
         return None
-
-    # Try JSON first
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
         pass
-
-    # Try Python literal eval (handles single quotes)
     try:
         return ast.literal_eval(raw)
     except (ValueError, SyntaxError):
         pass
-
     return None
 
 
-def extract_contacts_from_sheets(sheets: dict, file_key: str = ""):
+def extract_contacts_from_sheets(sheets: dict):
     contacts = []
     for sheet_name, df in sheets.items():
         if df.empty:
             continue
 
-        # Find the contact_info column
+        # Priority: contact_info (with underscore, has mobile) > contactInfo (without, no mobile)
         contact_col = None
         for col in df.columns:
-            col_str = str(col).strip().lower()
-            if col_str in ('contact_info', 'contactinfo'):
+            if str(col).strip() == 'contact_info':
                 contact_col = col
                 break
+
+        # Fallback to contactInfo if contact_info not found
+        if contact_col is None:
+            for col in df.columns:
+                if str(col).strip().lower() == 'contactinfo':
+                    contact_col = col
+                    break
 
         if contact_col is None:
             continue
 
-        col_values = df[contact_col].dropna().astype(str)
-
-        parsed_count = 0
-        skipped_count = 0
-        null_name_count = 0
-
-        for i, raw in enumerate(col_values):
+        for raw in df[contact_col].dropna().astype(str):
             obj = safe_parse_dict(raw)
-
-            if obj is None:
-                skipped_count += 1
-                if i < 2:
-                    print(f"    [DEBUG]    Row {i}: PARSE ERROR → '{str(raw)[:60]}...'")
-                continue
-
-            if isinstance(obj, dict):
-                if obj.get("name") is not None:
-                    contacts.append(obj)
-                    parsed_count += 1
-                    if parsed_count <= 2:
-                        print(f"    [DEBUG]    ✅ EXTRACTED: name={obj.get('name')}, mobile={obj.get('mobile')}")
-                else:
-                    null_name_count += 1
-                    if null_name_count <= 2:
-                        print(f"    [DEBUG]    ⏭️  SKIPPED (name is null)")
-            else:
-                skipped_count += 1
-
-        print(f"    [DEBUG] Summary: {parsed_count} extracted, {null_name_count} null-name, {skipped_count} skipped")
-
+            if isinstance(obj, dict) and obj.get("name") is not None:
+                contacts.append(obj)
     return contacts
 
 
@@ -237,14 +212,10 @@ def process_category(day_prefix: str, category: str, prev_day_prefix: str):
     cat_prefix = f"{day_prefix}{category}/"
     excel_keys = list_all_excel_keys(cat_prefix)
 
-    print(f"    Found {len(excel_keys)} Excel file(s)")
-    for k in excel_keys:
-        print(f"      📄 {k}")
-
     day_contacts = []
     for key in excel_keys:
         sheets = read_excel_sheets(key)
-        day_contacts.extend(extract_contacts_from_sheets(sheets, key))
+        day_contacts.extend(extract_contacts_from_sheets(sheets))
 
     day_unique = dedup_contacts(day_contacts)
 

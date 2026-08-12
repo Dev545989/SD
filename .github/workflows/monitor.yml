@@ -2,7 +2,7 @@ name: DKSA Monitor
 
 on:
   workflow_run:
-    workflows: ["DKSA"]
+    workflows: ["Contact Info"]
     types:
       - completed
   workflow_dispatch:

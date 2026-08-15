@@ -254,16 +254,28 @@ def upload_config(client, bucket: str, config_key: str) -> None:
     log.info(f"Config uploaded → r2://{bucket}/{config_key}")
 
 
-def r2_base_prefix(r2_path_raw: str) -> str:
+def r2_base_prefix(r2_path_raw: str) -> Tuple[str, Optional[str]]:
     """
-    Convert config r2_path like '{r2_bucket}/4sale-data/animals'
-    to the actual in-bucket prefix  '4sale-data/animals'.
+    Convert config r2_path like '{r2_bucket}/DKSA/vehicles/cars-for-sale'
+    into (base, category).
+
+    The category sits UNDER the date partition:
+        DKSA/year=.../month=.../day=.../vehicles/cars-for-sale/excel/...
+
+    Returns:
+        ('DKSA', 'vehicles/cars-for-sale')
     """
-    # Remove leading placeholder segment  e.g.  '{r2_bucket}/'
     path = r2_path_raw.strip()
     if path.startswith("{"):
         path = path.split("/", 1)[1] if "/" in path else path
-    return path.strip("/")
+
+    parts = path.strip("/").split("/")
+    if not parts or not parts[0]:
+        return path.strip("/"), None
+
+    base = parts[0]
+    category = "/".join(parts[1:]) if len(parts) > 1 else None
+    return base, category
 
 
 def partition_date_for_data_date(dt: datetime) -> datetime:
@@ -271,16 +283,28 @@ def partition_date_for_data_date(dt: datetime) -> datetime:
     return partition_date_for_listing(dt)
 
 
-def excel_prefixes_for_date(base: str, dt: datetime) -> List[str]:
+def excel_prefixes_for_date(base: str, category: Optional[str], dt: datetime) -> List[str]:
     """
     Build R2 date-partition prefixes for Excel discovery.
     Tries zero-padded (month=06/day=09) and unpadded (month=6/day=9) forms.
+
+    Structure:
+        DKSA/year=2026/month=08/day=15/vehicles/cars-for-sale/excel/
     """
+    base = base.strip("/")
+    date_part = f"year={dt.year}/month={dt.month:02d}/day={dt.day:02d}"
+
+    if category:
+        cat = category.strip("/")
+        template = f"{base}/{date_part}/{cat}/excel/"
+    else:
+        template = f"{base}/{date_part}/excel/"
+
     seen: set = set()
     prefixes: List[str] = []
     for month in (f"{dt.month:02d}", str(dt.month)):
         for day in (f"{dt.day:02d}", str(dt.day)):
-            prefix = f"{base}/year={dt.year}/month={month}/day={day}/"
+            prefix = template.replace(f"month={dt.month:02d}", f"month={month}").replace(f"day={dt.day:02d}", f"day={day}")
             if prefix not in seen:
                 seen.add(prefix)
                 prefixes.append(prefix)
@@ -1389,7 +1413,7 @@ def main():
 
     for scraper_cfg in scrapers_cfg:
         scraper_name = scraper_cfg["name"]
-        r2_base      = r2_base_prefix(scraper_cfg.get("r2_path", ""))
+        r2_base, category = r2_base_prefix(scraper_cfg.get("r2_path", ""))
         schema_entry = schema_by_scraper.get(scraper_name)
 
         if not r2_base:
@@ -1413,10 +1437,12 @@ def main():
             "date_published_hour_counts": {},
         }
 
+        # Full scraper path for inventory counters (all objects under this scraper)
+        scraper_path = f"{r2_base}/{category}" if category else r2_base
         partition_dt = partition_date_for_data_date(dates_to_check[0])
-        scraper_r2_inventory = count_scraper_r2_inventory(r2_client, bucket, r2_base)
+        scraper_r2_inventory = count_scraper_r2_inventory(r2_client, bucket, scraper_path)
         scraper_daily_inventory = count_daily_r2_inventory(
-            r2_client, bucket, r2_base, partition_dt
+            r2_client, bucket, scraper_path, partition_dt
         )
         scraper_result["r2_file_count"] = scraper_r2_inventory["objects"]
         scraper_result["r2_size_bytes"] = scraper_r2_inventory["size_bytes"]
@@ -1428,7 +1454,7 @@ def main():
         tried_prefixes: List[str] = []
         for dt in dates_to_check:
             part_dt = partition_date_for_data_date(dt)
-            for prefix in excel_prefixes_for_date(r2_base, part_dt):
+            for prefix in excel_prefixes_for_date(r2_base, category, part_dt):
                 tried_prefixes.append(prefix)
                 for f in list_excel_files(r2_client, bucket, prefix):
                     if f["key"] in seen_keys:
@@ -1457,13 +1483,13 @@ def main():
                 scraper_result["files_optional"] = True
             else:
                 log.warning(
-                    f"  {scraper_name}: NO Excel files found under {r2_base} "
+                    f"  {scraper_name}: NO Excel files found under {scraper_path} "
                     f"for listing {listing_date} (R2 partition day={partition_date}); "
                     f"tried e.g. {sample}{extra}"
                 )
                 scraper_result["all_passed"] = False
             ads_stats = count_scraper_ads(
-                r2_client, bucket, r2_base, partition_dt, []
+                r2_client, bucket, r2_base, category, partition_dt, []
             )
             scraper_result["unique_ads"] = ads_stats.get("unique_ads") or 0
             scraper_result["unique_phones"] = ads_stats.get("unique_phones") or 0
@@ -1476,7 +1502,7 @@ def main():
             if ads_stats.get("subcategory_breakdown"):
                 scraper_result["subcategory_breakdown"] = ads_stats["subcategory_breakdown"]
             req_stats = count_scraper_request_metrics(
-                r2_client, bucket, r2_base, partition_dt
+                r2_client, bucket, r2_base, category, partition_dt
             )
             _apply_request_metrics(scraper_result, req_stats)
             all_results.append(scraper_result)
@@ -1537,7 +1563,7 @@ def main():
                 )
 
         ads_stats = count_scraper_ads(
-            r2_client, bucket, r2_base, partition_dt, excel_downloads
+            r2_client, bucket, r2_base, category, partition_dt, excel_downloads
         )
         scraper_result["unique_ads"] = ads_stats.get("unique_ads") or 0
         scraper_result["unique_phones"] = ads_stats.get("unique_phones") or 0
@@ -1551,7 +1577,7 @@ def main():
             scraper_result["subcategory_breakdown"] = ads_stats["subcategory_breakdown"]
 
         req_stats = count_scraper_request_metrics(
-            r2_client, bucket, r2_base, partition_dt
+            r2_client, bucket, r2_base, category, partition_dt
         )
         _apply_request_metrics(scraper_result, req_stats)
 

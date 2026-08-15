@@ -3,7 +3,7 @@ request_metrics.py
 ==================
 Collect HTTP request throughput and error-rate metrics per scraper for the hub dashboard.
 
-Reads daily JSON summaries under json-files/ (same location as ads_counter).
+Reads daily JSON summaries under summary/ (same location as ads_counter).
 Scrapers should emit request_metrics in their summary JSON after each run.
 """
 
@@ -13,8 +13,6 @@ import json
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
-
-from ads_counter import _json_prefixes_for_date, _partition_prefixes_for_date
 
 log = logging.getLogger("monitor")
 
@@ -216,22 +214,29 @@ def _metrics_completeness(metrics: Dict[str, Any]) -> int:
     return score
 
 
-def _request_metrics_scan_targets(base: str, dt: datetime) -> List[Tuple[str, bool]]:
+def _request_metrics_scan_targets(
+    base: str,
+    category: Optional[str],
+    dt: datetime,
+) -> List[Tuple[str, bool]]:
     """
     (prefix, summary_filename_only) pairs for request-metrics discovery.
 
-    Standard scrapers write to json-files/. Legacy Dalil uploads used the
+    Standard scrapers write to summary/. Legacy uploads used the
     partition root (e.g. dalil_summary_YYYYMMDD.json).
     """
     base = base.strip("/")
+    date_part = f"year={dt.year}/month={dt.month:02d}/day={dt.day:02d}"
+
+    if category:
+        partition = f"{base}/{date_part}/{category.strip('/')}/"
+    else:
+        partition = f"{base}/{date_part}/"
+
     targets: List[Tuple[str, bool]] = [
-        (prefix, False) for prefix in _json_prefixes_for_date(base, dt)
+        (f"{partition}summary/", False),
+        (partition, True),  # legacy: summary file directly under partition
     ]
-    seen = {prefix for prefix, _ in targets}
-    for prefix in _partition_prefixes_for_date(base, dt):
-        if prefix not in seen:
-            seen.add(prefix)
-            targets.append((prefix, True))
     return targets
 
 
@@ -239,10 +244,11 @@ def load_json_request_metrics(
     client,
     bucket: str,
     r2_base: str,
+    category: Optional[str],
     partition_dt: datetime,
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """
-    Scan json-files/ (and legacy partition-root summaries) for request metrics.
+    Scan summary/ (and legacy partition-root summaries) for request metrics.
 
     Returns (metrics_dict, r2_key).
     """
@@ -250,7 +256,7 @@ def load_json_request_metrics(
     best_key: Optional[str] = None
     best_score = -1
 
-    for prefix, summary_only in _request_metrics_scan_targets(r2_base, partition_dt):
+    for prefix, summary_only in _request_metrics_scan_targets(r2_base, category, partition_dt):
         try:
             paginator = client.get_paginator("list_objects_v2")
             for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
@@ -304,10 +310,13 @@ def count_scraper_request_metrics(
     client,
     bucket: str,
     r2_base: str,
+    category: Optional[str],
     partition_dt: datetime,
 ) -> Dict[str, Any]:
     """Load request metrics for one scraper partition."""
-    metrics, _key = load_json_request_metrics(client, bucket, r2_base, partition_dt)
+    metrics, _key = load_json_request_metrics(
+        client, bucket, r2_base, category, partition_dt
+    )
     if metrics is None:
         return empty_scraper_metrics()
     return metrics

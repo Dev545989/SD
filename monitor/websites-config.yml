@@ -180,6 +180,8 @@ _col_standard_listing: &col_standard_listing
   - type
   - updatedAt
   - userExternalID
+  - image_r2_paths
+  - contact_info
 
 _col_vehicles_listing: &col_vehicles_listing
   - agency
@@ -213,70 +215,9 @@ _col_vehicles_listing: &col_vehicles_listing
   - type
   - updatedAt
   - userExternalID
-  
-_col_fashion_beauty_listing: &col_fashion_beauty_listing
-  - activeProducts
-  - canApplyBadges
-  - category
-  - contactInfo
-  - createdAt
-  - description
-  - externalID
-  - extraFields
-  - format
-  - formattedExtraFields
-  - geography
-  - id
-  - isSellerVerified
-  - keywords
-  - location
-  - objectID
-  - photoCount
-  - photo_urls
-  - product
-  - productInfo
-  - productScore
-  - purpose
-  - slug
-  - sourceID
-  - state
-  - timestamp
-  - title
-  - type
-  - updatedAt
-  - userExternalID
+  - image_r2_paths
+  - contact_info
 
-_col_electronics_home_appliances_listing: &col_electronics_home_appliances_listing
-  - activeProducts
-  - canApplyBadges
-  - category
-  - contactInfo
-  - createdAt
-  - description
-  - externalID
-  - extraFields
-  - format
-  - formattedExtraFields
-  - geography
-  - id
-  - isSellerVerified
-  - keywords
-  - location
-  - objectID
-  - photoCount
-  - photo_urls
-  - product
-  - productInfo
-  - productScore
-  - purpose
-  - slug
-  - sourceID
-  - state
-  - timestamp
-  - title
-  - type
-  - updatedAt
-  - userExternalID
 
 _col_motors_listings: &col_motors_listings
   - version_id
@@ -301,6 +242,7 @@ _col_motors_listings: &col_motors_listings
   - overview_data.info_data
   - overview_data.images
   - overview_data.colors
+  - image_r2_paths
 
 # ── PER-SCRAPER SCHEMAS ──────────────────────────────────────
 excel_schema:
@@ -391,7 +333,7 @@ excel_schema:
     excel_file_pattern: "{subcategory_slug}.xlsx"
     sheets:
       - name: "{child_category or Main}"                
-        required_columns: *col_electronics_home_appliances_listing
+        required_columns: *col_standard_listing
         row_count_range: [1, 100]
     min_file_size_kb: 5
 
@@ -407,7 +349,7 @@ excel_schema:
     excel_file_pattern: "{subcategory_slug}.xlsx"
     sheets:
       - name: "{child_category or Main}"                
-        required_columns: *col_fashion_beauty_listing
+        required_columns: *col_standard_listing
         row_count_range: [1, 100]
     min_file_size_kb: 5
 

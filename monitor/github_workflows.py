@@ -203,7 +203,8 @@ def _parse_github_dt(value: Optional[str]) -> Optional[datetime]:
 
 def _run_duration_sec(run: Dict) -> int:
     started = _parse_github_dt(run.get("run_started_at"))
-    finished = _parse_github_dt(run.get("completed_at"))
+    # GitHub API returns "updated_at" when the run finished; "completed_at" is not always present
+    finished = _parse_github_dt(run.get("completed_at") or run.get("updated_at"))
 
     if started and finished:
         return max(0, int((finished - started).total_seconds()))

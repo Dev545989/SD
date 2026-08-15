@@ -8,7 +8,7 @@ meta:
   r2_prefix: "DKSA"                    # Fixed prefix inside the bucket
 
 # ------------------------------------------------------------
-# SCRAPERS — 11 categories across 1 batche
+# SCRAPERS — 20 categories across 1 batche
 # ------------------------------------------------------------
 scrapers:
 
@@ -433,7 +433,7 @@ excel_schema:
         row_count_range: [1, 1]
     min_file_size_kb: 5
 
-  - scraper: Ppets
+  - scraper: pets
     excel_file_pattern: "{category_slug}.xlsx"
     sheets:
       - name: "{child_category or Main}"                

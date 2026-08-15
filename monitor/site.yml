@@ -8,7 +8,7 @@ repo: SD
 run_place: github
 uses_proxy: false
 r2_prefix: DKSA
-scrapers: 11
+scrapers: 20
 schedule: daily
 data_format: xlsx
 workflows:

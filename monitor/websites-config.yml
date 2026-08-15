@@ -153,8 +153,6 @@ _col_standard_listing: &col_standard_listing
   - activeProducts
   - canApplyBadges
   - category
-  - category.lvl0
-  - category.lvl1
   - contactInfo
   - createdAt
   - description
@@ -167,9 +165,6 @@ _col_standard_listing: &col_standard_listing
   - isSellerVerified
   - keywords
   - location
-  - location.lvl0
-  - location.lvl1
-  - location.lvl2
   - objectID
   - photoCount
   - photo_urls
@@ -191,8 +186,6 @@ _col_vehicles_listing: &col_vehicles_listing
   - activeProducts
   - canApplyBadges
   - category
-  - category.lvl0
-  - category.lvl1
   - contactInfo
   - createdAt
   - description
@@ -205,9 +198,6 @@ _col_vehicles_listing: &col_vehicles_listing
   - isSellerVerified
   - keywords
   - location
-  - location.lvl0
-  - location.lvl1
-  - location.lvl2
   - objectID
   - photoCount
   - photo_urls
@@ -228,9 +218,6 @@ _col_fashion_beauty_listing: &col_fashion_beauty_listing
   - activeProducts
   - canApplyBadges
   - category
-  - category.lvl0
-  - category.lvl1
-  - category.lvl2
   - contactInfo
   - createdAt
   - description
@@ -243,9 +230,6 @@ _col_fashion_beauty_listing: &col_fashion_beauty_listing
   - isSellerVerified
   - keywords
   - location
-  - location.lvl0
-  - location.lvl1
-  - location.lvl2
   - objectID
   - photoCount
   - photo_urls
@@ -266,9 +250,6 @@ _col_electronics_home_appliances_listing: &col_electronics_home_appliances_listi
   - activeProducts
   - canApplyBadges
   - category
-  - category.lvl0
-  - category.lvl1
-  - category.lvl2
   - contactInfo
   - createdAt
   - description
@@ -281,9 +262,6 @@ _col_electronics_home_appliances_listing: &col_electronics_home_appliances_listi
   - isSellerVerified
   - keywords
   - location
-  - location.lvl0
-  - location.lvl1
-  - location.lvl2
   - objectID
   - photoCount
   - photo_urls

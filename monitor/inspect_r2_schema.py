@@ -1437,12 +1437,10 @@ def main():
             "date_published_hour_counts": {},
         }
 
-        # Full scraper path for inventory counters (all objects under this scraper)
-        scraper_path = f"{r2_base}/{category}" if category else r2_base
         partition_dt = partition_date_for_data_date(dates_to_check[0])
-        scraper_r2_inventory = count_scraper_r2_inventory(r2_client, bucket, scraper_path)
+        scraper_r2_inventory = count_scraper_r2_inventory(r2_client, bucket, r2_base, category)
         scraper_daily_inventory = count_daily_r2_inventory(
-            r2_client, bucket, scraper_path, partition_dt
+            r2_client, bucket, r2_base, partition_dt, category
         )
         scraper_result["r2_file_count"] = scraper_r2_inventory["objects"]
         scraper_result["r2_size_bytes"] = scraper_r2_inventory["size_bytes"]

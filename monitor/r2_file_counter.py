@@ -61,13 +61,20 @@ def count_scraper_r2_files(client, bucket: str, r2_base: str) -> int:
     return inventory["objects"]
 
 
-def _date_partition_prefixes(base: str, dt: datetime) -> List[str]:
-    """R2 date-partition prefixes (year/month/day), zero-padded and unpadded."""
+def _date_partition_prefixes(base: str, dt: datetime, category: str | None = None) -> List[str]:
+    """R2 date-partition prefixes (year/month/day), zero-padded and unpadded.
+
+    When category is provided, the path becomes:
+        base/year=.../month=.../day=.../category/
+    """
     seen: set = set()
     prefixes: List[str] = []
     for month in (f"{dt.month:02d}", str(dt.month)):
         for day in (f"{dt.day:02d}", str(dt.day)):
-            prefix = f"{base}/year={dt.year}/month={month}/day={day}/"
+            if category:
+                prefix = f"{base}/year={dt.year}/month={month}/day={day}/{category.strip('/')}/"
+            else:
+                prefix = f"{base}/year={dt.year}/month={month}/day={day}/"
             if prefix not in seen:
                 seen.add(prefix)
                 prefixes.append(prefix)
@@ -75,7 +82,7 @@ def _date_partition_prefixes(base: str, dt: datetime) -> List[str]:
 
 
 def count_daily_r2_inventory(
-    client, bucket: str, r2_base: str, partition_dt: datetime
+    client, bucket: str, r2_base: str, partition_dt: datetime, category: str | None = None
 ) -> Dict[str, int]:
     """
     Count objects and bytes under one scraper's date-partition folder(s).
@@ -92,7 +99,7 @@ def count_daily_r2_inventory(
     size_bytes = 0
     paginator = client.get_paginator("list_objects_v2")
 
-    for prefix in _date_partition_prefixes(base, partition_dt):
+    for prefix in _date_partition_prefixes(base, partition_dt, category):
         try:
             for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
                 for obj in page.get("Contents", []):
@@ -112,16 +119,45 @@ def count_daily_r2_inventory(
     return {"objects": count, "size_bytes": size_bytes}
 
 
-def count_scraper_r2_inventory(client, bucket: str, r2_base: str) -> Dict[str, int]:
-    """Total objects + bytes under one scraper/category prefix."""
+def count_scraper_r2_inventory(client, bucket: str, r2_base: str, category: str | None = None) -> Dict[str, int]:
+    """Total objects + bytes under one scraper/category prefix.
+
+    When category is provided, searches under base/ and filters keys that contain
+    the category path (e.g. DKSA/.../vehicles/cars-for-sale/...).
+    """
     base = r2_base.strip("/")
     if not base:
         return {"objects": 0, "size_bytes": 0}
-    inventory = count_r2_inventory(client, bucket, base)
-    log.debug(
-        f"  R2 inventory {base}: {inventory['objects']} object(s), {inventory['size_bytes']} bytes"
-    )
-    return inventory
+
+    if category:
+        cat = category.strip("/")
+        cat_check = f"/{cat}/"
+        prefix = f"{base}/"
+        count = 0
+        size_bytes = 0
+        paginator = client.get_paginator("list_objects_v2")
+        try:
+            for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+                for obj in page.get("Contents", []):
+                    key = obj["Key"]
+                    if key.endswith("/"):
+                        continue
+                    if cat_check in key:
+                        count += 1
+                        size_bytes += int(obj.get("Size") or 0)
+        except Exception as exc:
+            log.warning(f"R2 inventory failed for prefix {prefix!r} with category {cat!r}: {exc}")
+            return {"objects": 0, "size_bytes": 0}
+        log.debug(
+            f"  R2 inventory {base} (cat={cat}): {count} object(s), {size_bytes} bytes"
+        )
+        return {"objects": count, "size_bytes": size_bytes}
+    else:
+        inventory = count_r2_inventory(client, bucket, base)
+        log.debug(
+            f"  R2 inventory {base}: {inventory['objects']} object(s), {inventory['size_bytes']} bytes"
+        )
+        return inventory
 
 
 def count_site_r2_files(client, bucket: str, r2_prefix: str) -> int:

@@ -1438,6 +1438,7 @@ def main():
         }
 
         partition_dt = partition_date_for_data_date(dates_to_check[0])
+        scraper_path = f"{r2_base}/{category}" if category else r2_base
         scraper_r2_inventory = count_scraper_r2_inventory(r2_client, bucket, r2_base, category)
         scraper_daily_inventory = count_daily_r2_inventory(
             r2_client, bucket, r2_base, partition_dt, category

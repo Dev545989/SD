@@ -307,7 +307,7 @@ excel_schema:
 
   # ── BATCH DKSA ─────────────────────────────────────────────────
 
-  - scraper: cars-for-sale
+  - scraper: cars-for-sale (vehicles)
     excel_file_pattern: "{brand_name}.xlsx"
     sheets:
       - name: "{car_type}"
@@ -315,7 +315,7 @@ excel_schema:
         row_count_range: [1, 100]
     min_file_size_kb: 5
 
-  - scraper: cars-for-rent
+  - scraper: cars-for-rent (vehicles)
     excel_file_pattern: "{brand_name}.xlsx"
     sheets:
       - name: "{car_type}"
@@ -323,7 +323,7 @@ excel_schema:
         row_count_range: [1, 100]
     min_file_size_kb: 5
 
-  - scraper: car-accessories
+  - scraper: car-accessories (vehicles)
     excel_file_pattern: "{category_slug}.xlsx"
     sheets:
       - name: "{child_category or Main}"                
@@ -331,7 +331,7 @@ excel_schema:
         row_count_range: [1, 100]
     min_file_size_kb: 5
 
-  - scraper: motorcycles
+  - scraper: motorcycles (vehicles)
     excel_file_pattern: "{category_slug}.xlsx"
     sheets:
       - name: "{child_category or Main}"                
@@ -339,7 +339,7 @@ excel_schema:
         row_count_range: [1, 100]
     min_file_size_kb: 5
   
-  - scraper: boats
+  - scraper: boats (vehicles)
     excel_file_pattern: "{category_slug}.xlsx"
     sheets:
       - name: "{child_category or Main}"                
@@ -347,7 +347,7 @@ excel_schema:
         row_count_range: [1, 100]
     min_file_size_kb: 5
 
-  - scraper: trucks
+  - scraper: trucks (vehicles)
     excel_file_pattern: "{category_slug}.xlsx"
     sheets:
       - name: "{child_category or Main}"                
@@ -355,7 +355,7 @@ excel_schema:
         row_count_range: [1, 100]
     min_file_size_kb: 5
 
-  - scraper: other-vehicles
+  - scraper: other-vehicles (vehicles)
     excel_file_pattern: "{category_slug}.xlsx"
     sheets:
       - name: "{child_category or Main}"                
@@ -363,7 +363,7 @@ excel_schema:
         row_count_range: [1, 100]
     min_file_size_kb: 5
   
-  - scraper: spare-parts
+  - scraper: spare-parts (vehicles)
     excel_file_pattern: "{category_slug}.xlsx"
     sheets:
       - name: "{child_category or Main}"                
@@ -371,7 +371,7 @@ excel_schema:
         row_count_range: [1, 100]
     min_file_size_kb: 5
 
-  - scraper: vip-car-plates
+  - scraper: vip-car-plates (vehicles)
     excel_file_pattern: "{category_slug}.xlsx"
     sheets:
       - name: "{child_category or Main}"                
@@ -492,15 +492,15 @@ alert_thresholds:
   # Per-scraper observed file-size floors (KB) from real stats × 50%, floored at schema min
   # Used as a fast check even before trend history exists
   observed_min_file_size_kb: 
-    cars-for-sale: 5
-    cars-for-rent: 5
-    car-accessories: 5
-    motorcycles: 5
-    boats: 5
-    trucks: 5
-    other-vehicles: 5
-    spare-parts: 5
-    vip-car-plates: 5
+    cars-for-sale (vehicles): 5
+    cars-for-rent (vehicles): 5
+    car-accessories (vehicles): 5
+    motorcycles (vehicles): 5
+    boats (vehicles): 5
+    trucks (vehicles): 5
+    other-vehicles (vehicles): 5
+    spare-parts (vehicles): 5
+    vip-car-plates (vehicles): 5
     mobile-phones-accessories: 5
     electronics-home-appliances: 5
     home-garden: 5

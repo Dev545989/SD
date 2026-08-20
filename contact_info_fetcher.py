@@ -109,7 +109,9 @@ def fetch_contact_info(page, ad_url: str, max_retries: int = 2) -> dict | None:
 
         if isinstance(data, dict) and data.get("name") is not None:
             mobile = data.get("mobile") or data.get("whatsapp") or "N/A"
-            print(f"  [SUCCESS] {ad_url} | Name: {data['name']} | Mobile: {mobile}")
+            #print(f"  [SUCCESS] {ad_url} | Name: {data['name']} | Mobile: {mobile}")
+            print(f"  [SUCCESS] {ad_url}")
+
             return data
 
         if data is not None:

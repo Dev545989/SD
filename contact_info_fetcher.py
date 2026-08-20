@@ -22,14 +22,7 @@ CONTACT_BUTTON_SELECTORS = [
     '[class*="contact"] a',
 ]
 
-EMPTY_CONTACT_INFO = {
-    "name": None,
-    "mobile": None,
-    "whatsapp": None,
-    "proxyMobile": None,
-    "mobileNumbers": [],
-    "roles": [],
-}
+EMPTY_CONTACT_INFO = None
 
 
 def build_ad_url(record: dict) -> str | None:
@@ -41,110 +34,92 @@ def build_ad_url(record: dict) -> str | None:
     return AD_URL_TEMPLATE.format(slug=slug or "ad", externalID=ad_id)
 
 
-def _try_fetch_once(page, ad_url: str, listing_id: str):
-    captured_data = None
-
-    def handle_response(response):
-        nonlocal captured_data
-        if f"/api/listing/{listing_id}/contactInfo/" in response.url:
-            try:
-                captured_data = response.json()
-            except Exception:
-                pass
-
-    page.on("response", handle_response)
-
+def _call_api_directly(page, listing_id: str, ad_url: str):
+    api_url = f"https://www.dubizzle.sa/api/listing/{listing_id}/contactInfo/"
     try:
-        # ← BACK to domcontentloaded (networkidle hangs too often)
-        page.goto(ad_url, wait_until="domcontentloaded", timeout=30000)
-        tracker.log_request(source="scraping_phone_num")
-        page.wait_for_timeout(random.uniform(1500, 2500))
-
-        # Already captured on page load?
-        if captured_data is not None:
-            return captured_data
-
-        # Find button
-        call_button = None
-        for selector in CONTACT_BUTTON_SELECTORS:
-            loc = page.locator(selector).first
-            try:
-                if loc.is_visible(timeout=2000):
-                    call_button = loc
-                    break
-            except Exception:
-                continue
-
-        if call_button is None:
-            # ← NORMAL: private ad, no phone button. Don't retry.
-            return {"_no_phone": True}
-
-        call_button.scroll_into_view_if_needed()
-        page.wait_for_timeout(300)
-
-        # Click and catch response
-        try:
-            with page.expect_response(
-                lambda r: f"/api/listing/{listing_id}/contactInfo/" in r.url,
-                timeout=6000
-            ) as resp_info:
-                call_button.click(force=True)
-            
-            response = resp_info.value
-            captured_data = response.json()
-
-        except Exception:
-            # Fallback: force click + wait
-            call_button.click(force=True)
-            page.wait_for_timeout(3000)
-
-        return captured_data
-
+        resp = page.request.get(
+            api_url,
+            headers={
+                "Accept": "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+                "Referer": ad_url,
+            },
+            timeout=10000,
+        )
+        if resp.status == 200:
+            return resp.json()
     except Exception as e:
-        # Only retry on real network errors
-        if "Timeout" in str(e) or "net::" in str(e):
-            raise
-        return None
-    finally:
-        page.remove_listener("response", handle_response)
+        print(f"      [API-DIRECT] Failed: {e}")
+    return None
 
 
-def fetch_contact_info(page, ad_url: str, max_retries: int = 2) -> dict:
+def _try_fetch_once(page, ad_url: str, listing_id: str):
+    page.goto(ad_url, wait_until="domcontentloaded", timeout=30000)
+    tracker.log_request(source="scraping_phone_num")
+    page.wait_for_timeout(random.uniform(1500, 2500))
+
+    data = _call_api_directly(page, listing_id, ad_url)
+    if data and data.get("name") is not None:
+        return data
+
+    call_button = None
+    for selector in CONTACT_BUTTON_SELECTORS:
+        loc = page.locator(selector).first
+        try:
+            if loc.is_visible(timeout=2000):
+                call_button = loc
+                break
+        except Exception:
+            continue
+
+    if call_button is None:
+        return {"_no_phone": True}
+
+    call_button.scroll_into_view_if_needed()
+    page.wait_for_timeout(300)
+    call_button.click(force=True)
+    page.wait_for_timeout(3000)
+
+    return _call_api_directly(page, listing_id, ad_url)
+
+
+def fetch_contact_info(page, ad_url: str, max_retries: int = 2) -> dict | None:
     match = re.search(r"ID(\d+)\.html", ad_url or "")
     if not match:
-        return dict(EMPTY_CONTACT_INFO)
+        print(f"  [PARSE-FAIL] {ad_url}")
+        return None
     listing_id = match.group(1)
 
     for attempt in range(1, max_retries + 1):
         try:
             data = _try_fetch_once(page, ad_url, listing_id)
         except Exception as e:
-            # Real network error → retry
-            if attempt < max_retries:
-                wait = random.uniform(1, 3)
-                print(f"    [RETRY] network error (attempt {attempt}): {e}")
-                page.wait_for_timeout(wait * 1000)
-                continue
-            print(f"    [SKIP] network failed after {max_retries} attempts: {ad_url}")
-            return dict(EMPTY_CONTACT_INFO)
+            if "Timeout" in str(e) or "net::" in str(e):
+                if attempt < max_retries:
+                    wait = random.uniform(1, 3)
+                    print(f"    [RETRY] network error (attempt {attempt}): {e}")
+                    page.wait_for_timeout(wait * 1000)
+                    continue
+            print(f"  [NETWORK-FAIL] {ad_url} | {e}")
+            return None
 
-        # No phone button = normal, don't retry
         if isinstance(data, dict) and data.get("_no_phone"):
-            return dict(EMPTY_CONTACT_INFO)
+            print(f"  [NO-BUTTON] {ad_url}")
+            return None
 
-        # Got data (even if mobile is null — that's valid)
         if isinstance(data, dict) and data.get("name") is not None:
+            mobile = data.get("mobile") or data.get("whatsapp") or "N/A"
+            print(f"  [SUCCESS] {ad_url} | Name: {data['name']} | Mobile: {mobile}")
             return data
 
-        # API returned empty JSON — no phone available, don't retry
         if data is not None:
-            return dict(EMPTY_CONTACT_INFO)
+            print(f"  [EMPTY-API] {ad_url}")
+            return None
 
-        # data is None = something went wrong, retry if we have attempts left
         if attempt < max_retries:
             wait = random.uniform(1, 3)
             print(f"    [RETRY] empty response (attempt {attempt}), waiting {wait:.1f}s...")
             page.wait_for_timeout(wait * 1000)
 
-    print(f"    [SKIP] No contact info for {ad_url}")
-    return dict(EMPTY_CONTACT_INFO)
+    print(f"  [FAILED] {ad_url}")
+    return None

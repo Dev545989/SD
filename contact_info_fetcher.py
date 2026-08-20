@@ -22,7 +22,7 @@ CONTACT_BUTTON_SELECTORS = [
     '[class*="contact"] a',
 ]
 
-EMPTY_CONTACT_INFO = None
+EMPTY_CONTACT_INFO = {}
 
 
 def build_ad_url(record: dict) -> str | None:

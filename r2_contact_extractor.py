@@ -1,26 +1,16 @@
 #!/usr/bin/env python3
 """
-R2 Contact Info Extractor — Daily Incremental
-==============================================
+R2 Contact Info Extractor — Daily Incremental (by name only)
+=============================================================
 Usage: python r2_contact_extractor.py <YYYY-MM-DD>
 
-Example: python r2_contact_extractor.py 2026-08-11
-
-For each category under DKSA/year=YYYY/month=MM/day=DD/:
-  1. Reads all .xlsx files recursively (multi-sheet, with headers)
-  2. Extracts contact_info from the 'contact_info' column (with underscore, has mobile numbers)
-  3. Filters out entries where name is null
-  4. Deduplicates by mobile → whatsapp → name
-  5. If previous day has agent-agency/category/agent-agency.xlsx, merges with it
-  6. Writes to DKSA/year=YYYY/month=MM/day=DD/agent-agency/<category>/agent-agency.xlsx
-
-Normalizes category names to lowercase-hyphen format for consistent output paths.
-
-Environment variables:
-    CF_R2_ENDPOINT_URL
-    CF_R2_ACCESS_KEY_ID
-    CF_R2_SECRET_ACCESS_KEY
-    CF_R2_BUCKET_NAME
+Logic:
+  1. Extracts today's contact_info from all .xlsx files
+  2. Deduplicates TODAY only by 'name' (keeps first occurrence)
+  3. Reads previous day's agent-agency.xlsx
+  4. Appends: previous + today (today last so it wins on name clash)
+  5. Deduplicates MERGED list by 'name' (newest wins)
+  6. Flattens JSON and writes to R2
 """
 
 import os
@@ -31,7 +21,6 @@ import re
 import boto3
 import pandas as pd
 from io import BytesIO
-from collections import OrderedDict
 from datetime import datetime, timedelta
 
 # ---------------------------------------------------------------------------
@@ -115,8 +104,8 @@ def read_excel_sheets(key: str):
 
 
 def safe_parse_dict(raw: str):
-    raw = raw.strip()
-    if not raw or raw in ("contact_info", "nan", "None", "NaN", "null", ""):
+    raw = str(raw).strip()
+    if not raw or raw.lower() in ("contact_info", "nan", "none", "nan", "null", ""):
         return None
     try:
         return json.loads(raw)
@@ -129,8 +118,60 @@ def safe_parse_dict(raw: str):
     return None
 
 
+def has_valid_phone(contact: dict) -> bool:
+    """
+    Return True if the contact dict contains at least one real phone number.
+    Checks: mobile, whatsapp, proxyMobile, and mobileNumbers list.
+    """
+    if not isinstance(contact, dict):
+        return False
+
+    # Check scalar phone fields
+    for key in ("mobile", "whatsapp", "proxyMobile"):
+        val = contact.get(key)
+        if val is None:
+            continue
+        val_str = str(val).strip()
+        if val_str and val_str.lower() not in ("n/a", "null", "none", "nan", ""):
+            digits = re.sub(r'\D', '', val_str)
+            if len(digits) >= 7:
+                return True
+
+    # Check mobileNumbers list
+    mobile_numbers = contact.get("mobileNumbers")
+    if isinstance(mobile_numbers, str):
+        try:
+            mobile_numbers = json.loads(mobile_numbers.replace("'", '"'))
+        except Exception:
+            mobile_numbers = None
+    if isinstance(mobile_numbers, list):
+        for num in mobile_numbers:
+            digits = re.sub(r'\D', '', str(num))
+            if len(digits) >= 7:
+                return True
+
+    return False
+
+
+def is_valid_contact(contact: dict) -> bool:
+    """
+    A valid contact must have:
+      - A non-empty name
+      - At least one valid phone number
+    """
+    if not isinstance(contact, dict):
+        return False
+
+    name = str(contact.get("name") or "").strip()
+    if not name or name.lower() in ("n/a", "null", "none", "nan"):
+        return False
+
+    return has_valid_phone(contact)
+
+
 def extract_contacts_from_sheets(sheets: dict):
     contacts = []
+    skipped = 0
     for sheet_name, df in sheets.items():
         if df.empty:
             continue
@@ -140,47 +181,88 @@ def extract_contacts_from_sheets(sheets: dict):
             if str(col).strip() == 'contact_info':
                 contact_col = col
                 break
-
         if contact_col is None:
             for col in df.columns:
                 if str(col).strip().lower() == 'contactinfo':
                     contact_col = col
                     break
-
         if contact_col is None:
             continue
 
         for raw in df[contact_col].dropna().astype(str):
             obj = safe_parse_dict(raw)
             if isinstance(obj, dict) and obj.get("name") is not None:
-                contacts.append(obj)
+                if is_valid_contact(obj):
+                    contacts.append(obj)
+                else:
+                    skipped += 1
+    if skipped:
+        print(f"    ⚠️  Skipped {skipped} contact(s) with missing/invalid phone")
     return contacts
 
 
-def dedup_contacts(contacts: list):
-    seen = OrderedDict()
+def dedup_by_name(contacts: list):
+    """
+    Deduplicate by 'name'.
+    - If a name appears once → keep it.
+    - If a name appears multiple times → prefer the one WITH a valid phone.
+      If both have phones (or both don't), keep the LAST occurrence (newest).
+    """
+    seen = {}
     for c in contacts:
-        key = c.get("mobile") or c.get("whatsapp") or c.get("name")
-        if key and key not in seen:
-            seen[key] = c
+        name = str(c.get("name") or "").strip()
+        if not name:
+            continue
+
+        existing = seen.get(name)
+        if existing is None:
+            seen[name] = c
+            continue
+
+        existing_has_phone = has_valid_phone(existing)
+        current_has_phone = has_valid_phone(c)
+
+        # Prefer contact with valid phone over empty one
+        if current_has_phone and not existing_has_phone:
+            seen[name] = c
+        # If both valid or both invalid, keep last (newest wins)
+        elif current_has_phone == existing_has_phone:
+            seen[name] = c
+
     return list(seen.values())
 
 
 def read_previous_contacts(prev_key: str):
+    """
+    Read flattened agent-agency.xlsx and convert back to list of dicts.
+    """
     try:
         resp = s3.get_object(Bucket=BUCKET_NAME, Key=prev_key)
         data = resp["Body"].read()
         df = pd.read_excel(BytesIO(data))
+        if df.empty:
+            return []
+
         contacts = []
         for _, row in df.iterrows():
-            record = row.to_dict()
-            record = {k: (v if pd.notna(v) else None) for k, v in record.items()}
+            record = {}
+            for col in df.columns:
+                val = row[col]
+                if pd.isna(val):
+                    record[col] = None
+                else:
+                    record[col] = val
+
+            # Re-hydrate list columns from string representation if needed
             for list_col in ["mobileNumbers", "roles"]:
                 if list_col in record and isinstance(record[list_col], str):
                     try:
                         record[list_col] = json.loads(record[list_col].replace("'", '"'))
-                    except:
+                    except Exception:
                         record[list_col] = []
+                elif list_col in record and record[list_col] is None:
+                    record[list_col] = []
+
             contacts.append(record)
         return contacts
     except s3.exceptions.NoSuchKey:
@@ -195,7 +277,9 @@ def write_contacts_excel(contacts: list, output_key: str):
         df = pd.DataFrame(columns=["name", "mobile", "whatsapp", "proxyMobile",
                                     "mobileNumbers", "roles"])
     else:
+        # Flatten nested dicts/lists into columns
         df = pd.json_normalize(contacts)
+
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name="Contacts")
@@ -220,32 +304,34 @@ def get_categories(day_prefix: str):
 def process_category(day_prefix: str, category: str, prev_day_prefix: str):
     # Normalize category name for consistent output paths
     norm_cat = normalize_category(category)
-
     cat_prefix = f"{day_prefix}{category}/"
     excel_keys = list_all_excel_keys(cat_prefix)
 
+    # 1. Extract today's contacts (filtered for valid phones)
     day_contacts = []
     for key in excel_keys:
         sheets = read_excel_sheets(key)
         day_contacts.extend(extract_contacts_from_sheets(sheets))
 
-    day_unique = dedup_contacts(day_contacts)
+    # 2. Deduplicate TODAY by name (prefer ones with phones)
+    day_unique = dedup_by_name(day_contacts)
 
-    # # Print extracted contacts with phone numbers
-    # for c in day_unique:
-    #     mobile = c.get("mobile") or c.get("whatsapp") or "N/A"
-    #     print(f"      📞 {c.get('name')} → {mobile}")
-
-    # Use normalized category name for output path (consistent across days)
+    # 3. Read previous day's merged file
     prev_key = f"{prev_day_prefix}{OUTPUT_SUBDIR}/{norm_cat}/{OUTPUT_FILENAME}"
     prev_contacts = read_previous_contacts(prev_key)
 
-    merged = dedup_contacts(prev_contacts + day_unique)
+    # Filter previous contacts too — remove stale records with no valid phone
+    prev_contacts = [c for c in prev_contacts if is_valid_contact(c)]
 
+    # 4. Merge: previous first, then today (today wins on name clash,
+    #    but dedup_by_name will prefer the one with a phone regardless of order)
+    merged = dedup_by_name(prev_contacts + day_unique)
+
+    # 5. Write to R2
     output_key = f"{day_prefix}{OUTPUT_SUBDIR}/{norm_cat}/{OUTPUT_FILENAME}"
     n_rows = write_contacts_excel(merged, output_key)
 
-    print(f"    → {category}: {len(day_unique)} new | {len(prev_contacts)} prev | {len(merged)} total")
+    print(f"    → {category}: {len(day_unique)} new valid | {len(prev_contacts)} prev valid | {len(merged)} total unique")
     return len(merged)
 
 
@@ -271,8 +357,6 @@ def main(target_date: str):
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python r2_contact_extractor.py <YYYY-MM-DD>")
-        print("Example: python r2_contact_extractor.py 2026-08-11")
         sys.exit(1)
-
     target_date = sys.argv[1]
     main(target_date)

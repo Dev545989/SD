@@ -262,7 +262,6 @@ def clean_and_group(df: pd.DataFrame, page=None, dt: datetime = None):
         record["image_r2_paths"] = image_r2_paths
         record["photo_urls"] = urls
         record.pop("photos", None)
-        record["image_r2_paths"] = image_r2_paths
         if page is not None:
             ad_url = build_ad_url(record)
             if ad_url:

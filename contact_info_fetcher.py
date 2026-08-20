@@ -34,6 +34,30 @@ def build_ad_url(record: dict) -> str | None:
     return AD_URL_TEMPLATE.format(slug=slug or "ad", externalID=ad_id)
 
 
+def has_valid_phone(data: dict) -> bool:
+    """Return True if data has a real phone number (not null/N/A/empty)."""
+    if not isinstance(data, dict):
+        return False
+    for key in ("mobile", "whatsapp", "proxyMobile"):
+        val = data.get(key)
+        if val is None:
+            continue
+        val_str = str(val).strip()
+        if val_str and val_str.lower() not in ("n/a", "null", "none", "nan", ""):
+            digits = re.sub(r'\D', '', val_str)
+            if len(digits) >= 7:
+                return True
+    
+    # Check mobileNumbers list
+    mobile_numbers = data.get("mobileNumbers")
+    if isinstance(mobile_numbers, list):
+        for num in mobile_numbers:
+            digits = re.sub(r'\D', '', str(num))
+            if len(digits) >= 7:
+                return True
+    return False
+
+
 def _call_api_directly(page, listing_id: str, ad_url: str):
     api_url = f"https://www.dubizzle.sa/api/listing/{listing_id}/contactInfo/"
     try:
@@ -58,10 +82,12 @@ def _try_fetch_once(page, ad_url: str, listing_id: str):
     tracker.log_request(source="scraping_phone_num")
     page.wait_for_timeout(random.uniform(1500, 2500))
 
+    # 1) Try API directly first
     data = _call_api_directly(page, listing_id, ad_url)
-    if data and data.get("name") is not None:
+    if has_valid_phone(data):
         return data
 
+    # 2) Look for phone button
     call_button = None
     for selector in CONTACT_BUTTON_SELECTORS:
         loc = page.locator(selector).first
@@ -80,7 +106,17 @@ def _try_fetch_once(page, ad_url: str, listing_id: str):
     call_button.click(force=True)
     page.wait_for_timeout(3000)
 
-    return _call_api_directly(page, listing_id, ad_url)
+    # 3) Try API again after click
+    data = _call_api_directly(page, listing_id, ad_url)
+    if has_valid_phone(data):
+        return data
+
+    # 4) If API returned name but no valid phone, treat as failure
+    if isinstance(data, dict) and data.get("name") is not None:
+        print(f"  [EMPTY-PHONE] {ad_url} | Name: {data.get('name')} (no valid number)")
+        return None
+
+    return None
 
 
 def fetch_contact_info(page, ad_url: str, max_retries: int = 2) -> dict | None:
@@ -107,11 +143,10 @@ def fetch_contact_info(page, ad_url: str, max_retries: int = 2) -> dict | None:
             print(f"  [NO-BUTTON] {ad_url}")
             return None
 
-        if isinstance(data, dict) and data.get("name") is not None:
-            mobile = data.get("mobile") or data.get("whatsapp") or "N/A"
+        if isinstance(data, dict) and has_valid_phone(data):
+            mobile = data.get("mobile") or data.get("whatsapp") or data.get("proxyMobile")
             #print(f"  [SUCCESS] {ad_url} | Name: {data['name']} | Mobile: {mobile}")
             print(f"  [SUCCESS] {ad_url}")
-
             return data
 
         if data is not None:

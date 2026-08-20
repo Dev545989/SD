@@ -240,9 +240,8 @@ _col_motors_listings: &col_motors_listings
   - faqs
   - popular_comparisons
   - overview_data.info_data
-  - overview_data.images
   - overview_data.colors
-  - image_r2_paths
+  - images
 
 # ── PER-SCRAPER SCHEMAS ──────────────────────────────────────
 excel_schema:

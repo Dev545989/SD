@@ -204,6 +204,6 @@ jobs:
       - name: Refresh stats over last 7 days
         run: |
           python monitor/inspect_r2_schema.py \
-            --days-lookback 7 \
+            --days-lookback 12 \
             --update-stats \
             --quality

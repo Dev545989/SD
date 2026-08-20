@@ -266,7 +266,8 @@ def clean_and_group(df: pd.DataFrame, page=None, dt: datetime = None):
         if page is not None:
             ad_url = build_ad_url(record)
             if ad_url:
-                record["contact_info"] = fetch_contact_info(page, ad_url)
+                # ← max_retries=2 (or 3 if you want)
+                record["contact_info"] = fetch_contact_info(page, ad_url, max_retries=3)
                 time.sleep(random.uniform(2, 5))
             else:
                 record["contact_info"] = dict(EMPTY_CONTACT_INFO)

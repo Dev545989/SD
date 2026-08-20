@@ -419,6 +419,9 @@ alert_thresholds:
 
   # Fire webhook when ANY scraper fails schema / trend / missing-files check
   alert_on_any_failure: true
+  # To re-enable "No Excel files" alerts later,
+  # just flip this to false in the YAML — no code changes needed.
+  skip_no_files_alert: true
 
   # Historical trend checks (requires monitor_stats.yml in R2)
   trend:
@@ -451,7 +454,7 @@ alert_thresholds:
     sporting-goods-bikes: 5
     hobbies-music-art-books: 5
     jobs-services: 5
-    Business & Industrial: 5
+    business-industrial: 5
     motors: 5
 
   channels:

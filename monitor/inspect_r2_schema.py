@@ -319,48 +319,41 @@ def excel_prefixes_for_date(base: str, category: Optional[str], dt: datetime) ->
 _TEMPLATE_MARKERS = ("{", "or Main", "or All Listings")
 
 # Scrapers that may legitimately produce zero files on many days (e.g. no yesterday listings)
-_FILES_OPTIONAL_SCRAPERS = frozenset({"New Car"})
+_FILES_OPTIONAL_SCRAPERS = frozenset({
+    "boats (vehicles)",
+    "motorcycles (vehicles)",
+    "motors",
+    "vip-car-plates (vehicles)",
+    "spare-parts (vehicles)",
+})
 
 # Per-scraper validation overrides when R2 schema does not match actual Excel layout
 _SCRAPER_PROFILES: Dict[str, Dict] = {
-    "Commercials": {
-        "skip_info_sheet": True,
-        "data_sheet_aliases": {"Sheet1", "Main", "Data", "Listings"},
-        "core_columns": ["id", "title"],
-    },
-    "Rest-Automotive-Part1": {
-        "min_file_size_kb": 6,
-    },
-    "Rest-Automotive-Part2": {
-        "core_columns": [
-            "ID", "Title", "Phone", "User", "User ID", "User Email",
-            "Description", "Price", "Date Published", "Date Created",
-            "Date Expired", "Date Sort",
-        ],
-        "optional_columns": [
-            "Images Count", "Image URLs", "District", "Category", "Contacts",
-            "PM Enabled", "Latitude", "Longitude", "Slug", "Status",
-        ],
-        "min_file_size_kb": 5,
-    },
-    "Services": {"min_file_size_kb": 5},
-    "Automotive-Cars-and-Trucks": {"min_file_size_kb": 5},
-    "Electronics": {
-        "min_file_size_kb": 5,
-        # One sheet per child category — row counts are too volatile for per-sheet trends
-        "skip_sheet_trend_checks": True,
-    },
-    "Furniture": {"min_file_size_kb": 5,
-        "skip_sheet_trend_checks": True,
-    },
-    "Property": {
-        # property-offices (and similar) use one sheet per business — volatile row counts
-        "skip_sheet_trend_checks": True,
-    },
-    "Rest-Automotive-Part3": {
-        # One sheet per business — row counts are too volatile for per-sheet trends
-        "skip_sheet_trend_checks": True,
-    },
+    # Vehicles — one sheet per brand/model, names change daily
+    "cars-for-sale (vehicles)":     {"skip_sheet_trend_checks": True, "min_file_size_kb": 5},
+    "cars-for-rent (vehicles)":     {"skip_sheet_trend_checks": True, "min_file_size_kb": 5},
+    "car-accessories (vehicles)":   {"skip_sheet_trend_checks": True, "min_file_size_kb": 5},
+    "motorcycles (vehicles)":       {"skip_sheet_trend_checks": True, "min_file_size_kb": 5},
+    "boats (vehicles)":             {"skip_sheet_trend_checks": True, "min_file_size_kb": 5},
+    "trucks (vehicles)":            {"skip_sheet_trend_checks": True, "min_file_size_kb": 5},
+    "other-vehicles (vehicles)":    {"skip_sheet_trend_checks": True, "min_file_size_kb": 5},
+    "spare-parts (vehicles)":       {"skip_sheet_trend_checks": True, "min_file_size_kb": 5},
+    "vip-car-plates (vehicles)":    {"skip_sheet_trend_checks": True, "min_file_size_kb": 5},
+    "motors":                       {"skip_sheet_trend_checks": True, "min_file_size_kb": 5},
+
+    # Non-vehicles — one sheet per subcategory, counts are volatile
+    "electronics-home-appliances":  {"skip_sheet_trend_checks": True, "min_file_size_kb": 5},
+    "home-garden":                  {"skip_sheet_trend_checks": True, "min_file_size_kb": 5},
+    "fashion-beauty":               {"skip_sheet_trend_checks": True, "min_file_size_kb": 5},
+    "pets":                         {"skip_sheet_trend_checks": True, "min_file_size_kb": 5},
+    "kids-babies":                  {"skip_sheet_trend_checks": True, "min_file_size_kb": 5},
+    "sporting-goods-bikes":         {"skip_sheet_trend_checks": True, "min_file_size_kb": 5},
+    "hobbies-music-art-books":      {"skip_sheet_trend_checks": True, "min_file_size_kb": 5},
+    "jobs-services":                {"skip_sheet_trend_checks": True, "min_file_size_kb": 5},
+    "business-industrial":          {"skip_sheet_trend_checks": True, "min_file_size_kb": 5},
+    
+    # Stable — only 2 sheets with fixed names
+    "mobile-phones-accessories":    {"skip_sheet_trend_checks": False, "min_file_size_kb": 5},
 }
 
 # Normalized column names that are enrichment / metadata — missing is OK
@@ -413,6 +406,8 @@ _COLUMN_CANONICAL: Dict[str, str] = {
     "descriptionar": "description",
     "phonenumber": "phone",
     "whatsappphone": "phone",
+    "contactinfo": "contactinfo",
+    "contact_info": "contactinfo",
 }
 
 
@@ -701,13 +696,16 @@ def severity_for_check(check_name: str) -> str:
     return "high"
 
 
-def collect_alerts(all_results: List[Dict], run_date: str) -> List[Dict]:
+def collect_alerts(all_results: List[Dict], run_date: str, alert_cfg: Optional[Dict] = None) -> List[Dict]:
+    alert_cfg = alert_cfg or {}
     """Build a flat list of alert events from scraper results."""
     alerts: List[Dict] = []
     for r in all_results:
         scraper = r["scraper"]
         if r["files_found"] == 0:
             if r.get("files_optional"):
+                continue
+            if alert_cfg.get("skip_no_files_alert"):
                 continue
             alerts.append({
                 "scraper": scraper,
@@ -776,7 +774,7 @@ def should_send_alerts(alerts: List[Dict], alert_cfg: Dict, total_scrapers: int)
 
 def format_alert_text(run_date: str, alerts: List[Dict], passed: int, total: int) -> str:
     lines = [
-        f"4Sale Schema Monitor ALERT — {run_date}",
+        f"DKSA Schema Monitor ALERT — {run_date}",
         f"{passed}/{total} scrapers passed · {len(alerts)} issue(s)",
         "",
     ]
@@ -816,7 +814,7 @@ def format_alert_html(run_date: str, alerts: List[Dict], passed: int, total: int
 
     failed = sorted({a["scraper"] for a in alerts})
     return (
-        f"<h2>4Sale Schema Monitor ALERT — {run_date}</h2>"
+        f"<h2>DKSA Schema Monitor ALERT — {run_date}</h2>"
         f"<p><strong>{passed}/{total}</strong> scrapers passed · "
         f"<strong>{len(alerts)}</strong> issue(s)</p>"
         f"<p>Failed scrapers: {', '.join(failed)}</p>"
@@ -1332,7 +1330,7 @@ def parse_args():
     p.add_argument(
         "--site-slug",
         default=None,
-        help="Override MONITOR_SITE_SLUG (e.g. 4sale) for this run",
+        help="Override MONITOR_SITE_SLUG (e.g. DKSA) for this run",
     )
     return p.parse_args()
 
@@ -1622,7 +1620,7 @@ def main():
         full_report["total_r2_files"] = sum(r.get("r2_file_count") or 0 for r in all_results)
         full_report["total_r2_size_bytes"] = sum(r.get("r2_size_bytes") or 0 for r in all_results)
 
-    alerts = collect_alerts(all_results, listing_date_str)
+    alerts = collect_alerts(all_results, listing_date_str, alert_cfg)
     full_report["alerts"] = alerts
     full_report["alert_count"] = len(alerts)
 

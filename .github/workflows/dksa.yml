@@ -16,17 +16,17 @@ jobs:
       max-parallel: 3
       matrix:
         category:
-          - vehicles
+          # - vehicles
           - mobile-phones-accessories
-          - electronics-home-appliances
-          - home-garden
-          - fashion-beauty
-          - pets
-          - kids-babies
-          - sporting-goods-bikes
-          - hobbies-music-art-books
-          - jobs-services
-          - business-industrial
+          # - electronics-home-appliances
+          # - home-garden
+          # - fashion-beauty
+          # - pets
+          # - kids-babies
+          # - sporting-goods-bikes
+          # - hobbies-music-art-books
+          # - jobs-services
+          # - business-industrial
 
     steps:
       - uses: actions/checkout@v4

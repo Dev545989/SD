@@ -49,36 +49,36 @@ def build_ad_url(record: dict) -> str | None:
     return AD_URL_TEMPLATE.format(slug=slug or "ad", externalID=ad_id)
 
 
-def _try_fetch_once(page, ad_url: str, listing_id: str, max_wait_ms: int = 8000):
+def _try_fetch_once(page, ad_url: str, listing_id: str):
     """
-    One attempt to fetch contact info.
-    Uses polling instead of fixed sleep.
+    One attempt with proper Playwright interaction.
+    Uses expect_response to catch the API call triggered by the button click.
     """
-    captured = {"contact_data": None, "api_status": None}
+    captured_data = None
 
     def handle_response(response):
+        nonlocal captured_data
         if f"/api/listing/{listing_id}/contactInfo/" in response.url:
-            captured["api_status"] = response.status
             try:
-                captured["contact_data"] = response.json()
+                captured_data = response.json()
             except Exception:
                 pass
 
-    # Attach listener BEFORE goto (in case API fires on page load)
     page.on("response", handle_response)
 
     try:
-        page.goto(ad_url, wait_until="domcontentloaded", timeout=60000)
+        # 1. Load page fully (networkidle = all JS loaded)
+        page.goto(ad_url, wait_until="networkidle", timeout=60000)
         tracker.log_request(source="scraping_phone_num")
         
-        # Wait for page JS to settle
-        page.wait_for_timeout(random.uniform(1500, 2500))
+        # 2. Wait a bit for any lazy JS
+        page.wait_for_timeout(random.uniform(1000, 2000))
 
-        # --- Phase 1: Check if API already captured (pre-loaded) ---
-        if captured["contact_data"] is not None:
-            return captured["contact_data"]
+        # 3. Check if API already fired on page load (pre-loaded)
+        if captured_data and captured_data.get("name"):
+            return captured_data
 
-        # --- Phase 2: Find and click the button ---
+        # 4. Find the button
         call_button = None
         for selector in CONTACT_BUTTON_SELECTORS:
             loc = page.locator(selector).first
@@ -90,22 +90,30 @@ def _try_fetch_once(page, ad_url: str, listing_id: str, max_wait_ms: int = 8000)
                 continue
 
         if call_button is None:
-            # No button — maybe private ad or API already gave us nothing
-            return captured["contact_data"]  # may be None
+            return captured_data  # may be None
 
+        # 5. Scroll and click normally (NOT force=True)
         call_button.scroll_into_view_if_needed()
-        page.wait_for_timeout(300)
-        call_button.click(force=True)
+        page.wait_for_timeout(500)
 
-        # --- Phase 3: Poll for API response (up to max_wait_ms) ---
-        poll_interval = 200  # ms
-        polls = int(max_wait_ms / poll_interval)
-        for _ in range(polls):
-            if captured["contact_data"] is not None:
-                break
-            page.wait_for_timeout(poll_interval)
+        # 6. Click and WAIT for the API response explicitly
+        try:
+            with page.expect_response(
+                lambda r: f"/api/listing/{listing_id}/contactInfo/" in r.url,
+                timeout=8000
+            ) as resp_info:
+                call_button.click()  # ← normal click, no force
+            
+            response = resp_info.value
+            captured_data = response.json()
+            
+        except Exception:
+            # Fallback: click force + wait
+            call_button.click(force=True)
+            page.wait_for_timeout(3000)
+            # captured_data may have been set by handle_response
 
-        return captured["contact_data"]
+        return captured_data
 
     except Exception as e:
         print(f"    [WARN] contact fetch attempt failed: {e}")
@@ -115,10 +123,6 @@ def _try_fetch_once(page, ad_url: str, listing_id: str, max_wait_ms: int = 8000)
 
 
 def fetch_contact_info(page, ad_url: str, max_retries: int = 2) -> dict:
-    """
-    Fetch contact info with retries.
-    Returns EMPTY_CONTACT_INFO only when all retries exhaust.
-    """
     match = re.search(r"ID(\d+)\.html", ad_url or "")
     if not match:
         return dict(EMPTY_CONTACT_INFO)
@@ -127,12 +131,8 @@ def fetch_contact_info(page, ad_url: str, max_retries: int = 2) -> dict:
     for attempt in range(1, max_retries + 1):
         data = _try_fetch_once(page, ad_url, listing_id)
         
-        # Success: got data with at least one phone number
-        if data and (data.get("mobile") or data.get("mobileNumbers")):
-            return data
-        
-        # Partial success: got JSON but empty phones — still better than null
-        if data and data != EMPTY_CONTACT_INFO:
+        # Success: got data with at least a name
+        if data and data.get("name") is not None:
             return data
         
         if attempt < max_retries:
@@ -140,6 +140,5 @@ def fetch_contact_info(page, ad_url: str, max_retries: int = 2) -> dict:
             print(f"    [RETRY] contact info empty (attempt {attempt}), waiting {wait:.1f}s...")
             page.wait_for_timeout(wait * 1000)
 
-    # All retries failed
     print(f"    [FAIL] contact info empty after {max_retries} attempts for {ad_url}")
     return dict(EMPTY_CONTACT_INFO)

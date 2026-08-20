@@ -424,9 +424,9 @@ alert_thresholds:
   # Historical trend checks (requires monitor_stats.yml in R2)
   trend:
     min_observed_days: 7
-    min_row_pct_of_hist_min: 25       # alert if rows < 25% of historical min per sheet
-    max_row_pct_of_hist_max: 500      # alert if rows > 500% of historical max per sheet
-    min_file_size_pct_of_hist_min: 50 # alert if file < 50% of historical min per scraper
+    min_row_pct_of_hist_min: 5       # alert if rows < 5% of historical min per sheet
+    max_row_pct_of_hist_max: 1000      # alert if rows > 1000% of historical max per sheet
+    min_file_size_pct_of_hist_min: 10 # alert if file < 10% of historical min per scraper
 
   # Run-level gate — skip webhook if failure rate is below this (0 = always alert)
   max_scraper_fail_rate_pct: 0

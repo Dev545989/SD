@@ -20,9 +20,6 @@ CONTACT_BUTTON_SELECTORS = [
     'a[class*="phone"]',
     '[class*="contact"] button',
     '[class*="contact"] a',
-    'button[class*="call"]',
-    'a[class*="call"]',
-    '[data-testid="phone-number-button"]',
 ]
 
 EMPTY_CONTACT_INFO = {}
@@ -51,6 +48,7 @@ def has_valid_phone(data: dict) -> bool:
             if len(digits) >= 7:
                 return True
 
+    # Check mobileNumbers list
     mobile_numbers = data.get("mobileNumbers")
     if isinstance(mobile_numbers, list):
         for num in mobile_numbers:
@@ -80,68 +78,40 @@ def _call_api_directly(page, listing_id: str, ad_url: str):
 
 
 def _try_fetch_once(page, ad_url: str, listing_id: str):
-    # ✅ networkidle + timeout أطول
-    page.goto(ad_url, wait_until="networkidle", timeout=45000)
+    page.goto(ad_url, wait_until="domcontentloaded", timeout=30000)
     tracker.log_request(source="scraping_phone_num")
-
-    # ✅ انتظار أطول عشان الـ dynamic content
-    page.wait_for_timeout(random.uniform(2500, 4500))
+    page.wait_for_timeout(random.uniform(1500, 2500))
 
     # 1) Try API directly first
     data = _call_api_directly(page, listing_id, ad_url)
     if has_valid_phone(data):
         return data
 
-    # 2) ✅ Human-like scroll عشان يظهر الزر لو كان lazy-loaded
-    page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.5)")
-    page.wait_for_timeout(random.uniform(600, 1200))
-    page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.8)")
-    page.wait_for_timeout(random.uniform(400, 800))
-    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-    page.wait_for_timeout(random.uniform(800, 1500))
-
-    # 3) ✅ 3 محاولات للبحث عن الزر مع انتظار
+    # 2) Look for phone button
     call_button = None
-    for attempt in range(3):
-        for selector in CONTACT_BUTTON_SELECTORS:
-            loc = page.locator(selector).first
-            try:
-                loc.wait_for(state="visible", timeout=8000)
+    for selector in CONTACT_BUTTON_SELECTORS:
+        loc = page.locator(selector).first
+        try:
+            if loc.is_visible(timeout=2000):
                 call_button = loc
                 break
-            except Exception:
-                continue
-
-        if call_button:
-            break
-
-        if attempt < 2:
-            page.wait_for_timeout(random.uniform(1500, 3000))
-            page.evaluate("window.scrollTo(0, 0)")
-            page.wait_for_timeout(500)
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            page.wait_for_timeout(1000)
+        except Exception:
+            continue
 
     if call_button is None:
         return {"_no_phone": True}
 
-    # Scroll and click
     call_button.scroll_into_view_if_needed()
-    page.wait_for_timeout(random.uniform(300, 800))
+    page.wait_for_timeout(300)
+    call_button.click(force=True)
+    page.wait_for_timeout(3000)
 
-    try:
-        call_button.click(timeout=5000)
-    except Exception:
-        call_button.click(force=True)
-
-    page.wait_for_timeout(random.uniform(2500, 4000))
-
-    # 4) Try API again after click
+    # 3) Try API again after click
     data = _call_api_directly(page, listing_id, ad_url)
     if has_valid_phone(data):
         return data
 
-    # 5) If API returned name but no valid phone, treat as failure
+    # 4) If API returned name but no valid phone, treat as failure
     if isinstance(data, dict) and data.get("name") is not None:
         print(f"  [EMPTY-PHONE] {ad_url} | Name: {data.get('name')} (no valid number)")
         return None
@@ -149,7 +119,7 @@ def _try_fetch_once(page, ad_url: str, listing_id: str):
     return None
 
 
-def fetch_contact_info(page, ad_url: str, max_retries: int = 3) -> dict | None:
+def fetch_contact_info(page, ad_url: str, max_retries: int = 2) -> dict | None:
     match = re.search(r"ID(\d+)\.html", ad_url or "")
     if not match:
         print(f"  [PARSE-FAIL] {ad_url}")
@@ -160,10 +130,9 @@ def fetch_contact_info(page, ad_url: str, max_retries: int = 3) -> dict | None:
         try:
             data = _try_fetch_once(page, ad_url, listing_id)
         except Exception as e:
-            err_str = str(e)
-            if "Timeout" in err_str or "net::" in err_str or "ERR_" in err_str:
+            if "Timeout" in str(e) or "net::" in str(e):
                 if attempt < max_retries:
-                    wait = random.uniform(2, 5)
+                    wait = random.uniform(1, 3)
                     print(f"    [RETRY] network error (attempt {attempt}): {e}")
                     page.wait_for_timeout(wait * 1000)
                     continue
@@ -175,6 +144,8 @@ def fetch_contact_info(page, ad_url: str, max_retries: int = 3) -> dict | None:
             return None
 
         if isinstance(data, dict) and has_valid_phone(data):
+            mobile = data.get("mobile") or data.get("whatsapp") or data.get("proxyMobile")
+            #print(f"  [SUCCESS] {ad_url} | Name: {data['name']} | Mobile: {mobile}")
             print(f"  [SUCCESS] {ad_url}")
             return data
 
@@ -183,7 +154,7 @@ def fetch_contact_info(page, ad_url: str, max_retries: int = 3) -> dict | None:
             return None
 
         if attempt < max_retries:
-            wait = random.uniform(2, 5)
+            wait = random.uniform(1, 3)
             print(f"    [RETRY] empty response (attempt {attempt}), waiting {wait:.1f}s...")
             page.wait_for_timeout(wait * 1000)
 

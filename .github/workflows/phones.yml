@@ -1,38 +1,17 @@
 name: Fetch Phones
 
 on:
-  # ✅ يشتغل تلقائي بعد ما الـ DKSA workflow يخلص
+  workflow_dispatch:
+
   workflow_run:
     workflows: ["DKSA"]
     types:
       - completed
-    branches:
-      - main
 
-  # ✅ أو تشغيله يدوي
-  workflow_dispatch:
-    inputs:
-      date:
-        description: 'Date to process (YYYY-MM-DD)'
-        required: true
-        default: ''
-      delay_min:
-        description: 'Min delay between requests (seconds)'
-        required: false
-        default: '5'
-      delay_max:
-        description: 'Max delay between requests (seconds)'
-        required: false
-        default: '10'
-      categories:
-        description: 'Categories to process (space-separated, e.g. "jobs-services")'
-        required: false
-        default: ''
 
 jobs:
   fetch-phones:
     runs-on: ubuntu-latest
-    # ✅ مفيش parallel خالص — job واحد بس شغال في أي وقت
     concurrency:
       group: fetch-phones
       cancel-in-progress: false
@@ -75,8 +54,7 @@ jobs:
               --categories $CATS
           else
             python fetch_phones.py \
-                --date 2026-08-23 \
-                --categories jobs-services \
-                --delay-min 5 \
-                --delay-max 10
+              --date "${{ steps.date.outputs.date }}" \
+              --delay-min ${{ github.event.inputs.delay_min || '5' }} \
+              --delay-max ${{ github.event.inputs.delay_max || '10' }}
           fi

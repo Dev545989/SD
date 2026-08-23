@@ -1,13 +1,31 @@
 name: Fetch Phones
 
 on:
-  workflow_dispatch:
-
   workflow_run:
     workflows: ["DKSA"]
     types:
       - completed
+    branches:
+      - main
 
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Date to process (YYYY-MM-DD)'
+        required: true
+        default: ''
+      delay_min:
+        description: 'Min delay between requests (seconds)'
+        required: false
+        default: '5'
+      delay_max:
+        description: 'Max delay between requests (seconds)'
+        required: false
+        default: '10'
+      categories:
+        description: 'Categories to process (space-separated, e.g. "jobs-services")'
+        required: false
+        default: ''
 
 jobs:
   fetch-phones:

@@ -1,0 +1,82 @@
+name: Fetch Phones
+
+on:
+  # ✅ يشتغل تلقائي بعد ما الـ DKSA workflow يخلص
+  workflow_run:
+    workflows: ["DKSA"]
+    types:
+      - completed
+    branches:
+      - main
+
+  # ✅ أو تشغيله يدوي
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Date to process (YYYY-MM-DD)'
+        required: true
+        default: ''
+      delay_min:
+        description: 'Min delay between requests (seconds)'
+        required: false
+        default: '5'
+      delay_max:
+        description: 'Max delay between requests (seconds)'
+        required: false
+        default: '10'
+      categories:
+        description: 'Categories to process (space-separated, e.g. "jobs-services")'
+        required: false
+        default: ''
+
+jobs:
+  fetch-phones:
+    runs-on: ubuntu-latest
+    # ✅ مفيش parallel خالص — job واحد بس شغال في أي وقت
+    concurrency:
+      group: fetch-phones
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Playwright browsers
+        run: playwright install --with-deps chromium
+
+      - name: Determine date
+        id: date
+        run: |
+          if [ -n "${{ github.event.inputs.date }}" ]; then
+            echo "date=${{ github.event.inputs.date }}" >> $GITHUB_OUTPUT
+          else
+            echo "date=$(date -u +%Y-%m-%d)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Fetch contact info from R2
+        env:
+          CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          CF_R2_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT_URL }}
+          CF_R2_BUCKET_NAME: ${{ secrets.CF_R2_BUCKET_NAME }}
+        run: |
+          CATS="${{ github.event.inputs.categories }}"
+          if [ -n "$CATS" ]; then
+            python fetch_phones.py \
+              --date "${{ steps.date.outputs.date }}" \
+              --delay-min ${{ github.event.inputs.delay_min || '5' }} \
+              --delay-max ${{ github.event.inputs.delay_max || '10' }} \
+              --categories $CATS
+          else
+            python fetch_phones.py \
+                --date 2026-08-23 \
+                --categories jobs-services \
+                --delay-min 5 \
+                --delay-max 10
+          fi

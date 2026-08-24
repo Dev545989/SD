@@ -2,7 +2,7 @@ name: Contact Info
 
 on:
   workflow_run:
-    workflows: ["DKSA"]
+    workflows: ["Fetch Phones"]
     types:
       - completed
   workflow_dispatch:

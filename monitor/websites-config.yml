@@ -180,7 +180,6 @@ _col_standard_listing: &col_standard_listing
   - type
   - updatedAt
   - userExternalID
-  - image_r2_paths
   - contact_info
 
 _col_vehicles_listing: &col_vehicles_listing
@@ -215,7 +214,6 @@ _col_vehicles_listing: &col_vehicles_listing
   - type
   - updatedAt
   - userExternalID
-  - image_r2_paths
   - contact_info
 
 

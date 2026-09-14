@@ -249,15 +249,19 @@ def clean_and_group(df: pd.DataFrame, page=None, dt: datetime = None):
         urls = photo_urls(row.get("photos"))
         ad_id = str(row.get("id") or row.get("externalID") or "")
 
+        subcat_slug = cat1.get("slug") if cat1 else None
+
         if cat0_slug in ("vehicles", "properties"):
-            subcat_slug = (cat1.get("slug") if cat1 else None) or "uncategorized"
-            r2_category_path = resolve_category_r2_path(cat0_slug, subcat_slug)
+            r2_category_path = resolve_category_r2_path(cat0_slug, subcat_slug or "uncategorized")
         else:
             r2_category_path = resolve_category_r2_path(cat0_slug)
 
-        # image_r2_paths = download_images(urls, id_prod=ad_id, category_display=r2_category_path, dt=dt)
         record = row.to_dict()
-        # record["image_r2_paths"] = image_r2_paths
+
+        if subcat_slug == "vip-car-plates":
+            image_r2_paths = download_images(urls, id_prod=ad_id, category_display=r2_category_path, dt=dt)
+            record["image_r2_paths"] = image_r2_paths
+            
         record = clean_timestamp_fields(record)
         record = clean_active_products(record)
         record["photo_urls"] = urls

@@ -32,6 +32,7 @@ CATEGORY_SLUGS = [
     "hobbies-music-art-books",
     "jobs-services",
     "business-industrial",
+    "services"
 ]
 
 headers = {

@@ -126,6 +126,12 @@ scrapers:
     workflow_file: dksa.yml
     r2_path: "{r2_bucket}/DKSA/business-industrial"
 
+  - name: services
+    url: https://www.dubizzle.sa/en/services/
+    batch: "DKSA"
+    workflow_file: dksa.yml
+    r2_path: "{r2_bucket}/DKSA/services"
+
   - name: motors
     url: https://www.dubizzle.sa/en/motors/new-cars/
     batch: "DKSA"
@@ -215,7 +221,6 @@ _col_vehicles_listing: &col_vehicles_listing
   - updatedAt
   - userExternalID
   - contact_info
-
 
 _col_motors_listings: &col_motors_listings
   - version_id
@@ -398,6 +403,14 @@ excel_schema:
         row_count_range: [1, 100]
     min_file_size_kb: 5
 
+  - scraper: services
+    excel_file_pattern: "{category_slug}.xlsx"
+    sheets:
+      - name: "{child_category or Main}"                
+        required_columns: *col_standard_listing
+        row_count_range: [1, 100]
+    min_file_size_kb: 5
+
   - scraper: motors
     excel_file_pattern: "{brand_name}.xlsx"
     sheets:
@@ -453,6 +466,7 @@ alert_thresholds:
     hobbies-music-art-books: 5
     jobs-services: 5
     business-industrial: 5
+    services: 5
     motors: 5
 
   channels:

@@ -339,6 +339,7 @@ _FILES_OPTIONAL_SCRAPERS = frozenset({
     "hobbies-music-art-books",
     "jobs-services",
     "business-industrial",
+    "services",
     "motors",
 })
 

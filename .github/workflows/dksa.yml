@@ -27,6 +27,7 @@ jobs:
           - hobbies-music-art-books
           - jobs-services
           - business-industrial
+          - services
 
     steps:
       - uses: actions/checkout@v4

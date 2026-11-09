@@ -76,6 +76,7 @@ from monitor_r2 import (
     report_r2_key,
     resolve_site_folder,
 )
+from website_ads_counter import count_website_published_ads
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -1639,6 +1640,9 @@ def main():
     alerts = collect_alerts(all_results, listing_date_str, alert_cfg)
     full_report["alerts"] = alerts
     full_report["alert_count"] = len(alerts)
+
+    website_result = count_website_published_ads(site, listing_date_str)
+    full_report.update(website_result)
 
     site_request_metrics = aggregate_site_request_metrics(all_results)
     full_report.update(site_request_metrics)

@@ -81,7 +81,7 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install boto3 openpyxl pyyaml pandas
+        run: pip install boto3 openpyxl pyyaml pandas requests
 
       # ═══════════════════════════════════════════════════════════════════════
       # UPLOAD CONFIG FILES (site.yml + websites-config.yml)
